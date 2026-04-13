@@ -268,7 +268,7 @@ func (a *App) StartMonitoring() error {
 
 	// Create monitor if not exists
 	if a.monitor == nil {
-		mon, err := monitor.NewMonitor(a.dataDir, monitorCfg)
+		mon, err := monitor.NewMonitor(monitorCfg, a.storage)
 		if err != nil {
 			return err
 		}

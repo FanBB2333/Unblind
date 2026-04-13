@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -68,16 +67,11 @@ type Monitor struct {
 	onCheckComplete func(*parser.ParsedResults)
 }
 
-// NewMonitor creates a new monitor
-func NewMonitor(dataDir string, config Config) (*Monitor, error) {
-	stor, err := storage.NewStorage(dataDir)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create storage: %w", err)
-	}
-
+// NewMonitor creates a new monitor with a shared storage instance
+func NewMonitor(config Config, stor *storage.Storage) (*Monitor, error) {
 	// Ensure profile directory exists
 	if config.ProfileDir == "" {
-		config.ProfileDir = filepath.Join(dataDir, "chrome-profile")
+		return nil, fmt.Errorf("profile directory must be specified")
 	}
 	os.MkdirAll(config.ProfileDir, 0755)
 
