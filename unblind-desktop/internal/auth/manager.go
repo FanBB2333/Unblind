@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -67,6 +68,8 @@ func (m *Manager) StartLoginFlow(browserPath string) error {
 	// Cancel any existing browser context
 	if m.cancelFunc != nil {
 		m.cancelFunc()
+		m.cancelFunc = nil
+		m.browserCtx = nil
 	}
 
 	// Create profile directory
@@ -74,6 +77,12 @@ func (m *Manager) StartLoginFlow(browserPath string) error {
 	if err := os.MkdirAll(profileDir, 0755); err != nil {
 		return fmt.Errorf("failed to create profile directory: %w", err)
 	}
+
+	// Kill any stale Chrome process holding the profile lock,
+	// then clean the lock files so Chrome can start fresh.
+	killChromeByProfile(profileDir)
+	time.Sleep(300 * time.Millisecond)
+	cleanChromeLockFiles(profileDir)
 
 	// Setup chromedp options
 	opts := append(chromedp.DefaultExecAllocatorOptions[:],
@@ -101,7 +110,7 @@ func (m *Manager) StartLoginFlow(browserPath string) error {
 		allocCancel()
 	}
 
-	// Navigate to login page
+	// Navigate to login page in background
 	go func() {
 		err := chromedp.Run(ctx,
 			chromedp.Navigate(LoginURL),
@@ -173,12 +182,19 @@ func (m *Manager) ValidateSession(browserPath string) (bool, error) {
 	// Cancel any existing browser context
 	if m.cancelFunc != nil {
 		m.cancelFunc()
+		m.cancelFunc = nil
+		m.browserCtx = nil
 	}
 
 	profileDir := m.session.ProfileDir
 	if profileDir == "" {
 		profileDir = filepath.Join(m.dataDir, "chrome-profile")
 	}
+
+	// Kill stale Chrome and clean lock files
+	killChromeByProfile(profileDir)
+	time.Sleep(300 * time.Millisecond)
+	cleanChromeLockFiles(profileDir)
 
 	// Setup headless browser to validate session
 	opts := append(chromedp.DefaultExecAllocatorOptions[:],
@@ -336,4 +352,37 @@ func (m *Manager) saveSession() error {
 	}
 
 	return os.WriteFile(sessionPath, data, 0644)
+}
+
+// killChromeByProfile reads the PID from SingletonLock and kills that process.
+// This handles the case where a previous chromedp Chrome was not cleaned up
+// (e.g., after a panic or hard crash), which would otherwise cause the next
+// Chrome launch to print "Opening in existing browser session." and exit.
+func killChromeByProfile(profileDir string) {
+	lockPath := filepath.Join(profileDir, "SingletonLock")
+	target, err := os.Readlink(lockPath)
+	if err != nil {
+		return // lock file absent or not a symlink — nothing to kill
+	}
+	// target format is "<hostname>-<PID>" on macOS/Linux
+	parts := strings.Split(target, "-")
+	if len(parts) == 0 {
+		return
+	}
+	pid, err := strconv.Atoi(parts[len(parts)-1])
+	if err != nil {
+		return
+	}
+	proc, err := os.FindProcess(pid)
+	if err != nil {
+		return
+	}
+	_ = proc.Kill() // ignore error — process may already be gone
+}
+
+// cleanChromeLockFiles removes Singleton* files left by a crashed Chrome instance.
+func cleanChromeLockFiles(profileDir string) {
+	for _, name := range []string{"SingletonLock", "SingletonCookie", "SingletonSocket"} {
+		os.Remove(filepath.Join(profileDir, name))
+	}
 }
