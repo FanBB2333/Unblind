@@ -353,17 +353,17 @@ func (m *Monitor) performCheck() (*parser.ParsedResults, error) {
 	m.status.LastError = ""
 	m.mu.Unlock()
 
-	// Check if results changed
+	// Persist the latest parsed results on every successful check so the stored
+	// extract time always matches what the user just saw, even when the content
+	// hash did not change.
 	lastHash := m.storage.GetLastHash()
-	if m.parser.ResultsChanged(results, lastHash) && m.parser.HasResults(results) {
-		// Generate description
-		description := m.generateChangeDescription(results)
+	resultsChanged := m.parser.ResultsChanged(results, lastHash)
+	description := m.generateChangeDescription(results)
+	if err := m.storage.SaveResults(results, description); err != nil {
+		fmt.Printf("Failed to save results: %v\n", err)
+	}
 
-		// Save results
-		if err := m.storage.SaveResults(results, description); err != nil {
-			fmt.Printf("Failed to save results: %v\n", err)
-		}
-
+	if resultsChanged && m.parser.HasResults(results) {
 		// Send notification
 		if m.config.BarkEnabled && m.config.BarkBaseURL != "" {
 			title := "盲审结果更新"
@@ -380,9 +380,6 @@ func (m *Monitor) performCheck() (*parser.ParsedResults, error) {
 		if callback != nil {
 			callback(results)
 		}
-	} else {
-		// Just update check time
-		m.storage.UpdateLastCheckTime()
 	}
 
 	m.updateStatus()

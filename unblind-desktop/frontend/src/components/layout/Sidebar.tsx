@@ -24,7 +24,10 @@ export function Sidebar({ currentPage, onNavigate }: SidebarProps) {
   return (
     <aside className="w-56 bg-muted/40 border-r h-screen flex flex-col">
       <div className="p-4 border-b">
-        <h1 className="text-lg font-semibold">Unblind</h1>
+        <div className="flex items-baseline gap-2">
+          <h1 className="text-lg font-semibold">Unblind</h1>
+          <span className="text-xs text-muted-foreground font-mono">v0.1.0</span>
+        </div>
         <p className="text-xs text-muted-foreground">盲审结果监控</p>
       </div>
       <nav className="flex-1 p-2">
