@@ -4,6 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { History, Trash2, RefreshCw } from "lucide-react";
+import { EventsOn, EventsOff } from "../../wailsjs/runtime/runtime";
 import { GetCurrentResults, GetResultsHistory, ClearResultsHistory } from "../../wailsjs/go/main/App";
 import { parser, storage } from "../../wailsjs/go/models";
 
@@ -27,9 +28,31 @@ export function ResultsPage() {
 
   useEffect(() => {
     fetchData();
-    // Poll for updates every 5 seconds
-    const interval = setInterval(fetchData, 5000);
+    // Fallback poll every 10 seconds (events provide real-time updates)
+    const interval = setInterval(fetchData, 10000);
     return () => clearInterval(interval);
+  }, []);
+
+  // Listen for real-time results updates
+  useEffect(() => {
+    const offResults = EventsOn("monitor:results-updated", (results: parser.ParsedResults) => {
+      if (results) {
+        setCurrentResults(results);
+        // Also refresh history since a change was detected
+        GetResultsHistory().then((hist) => setHistory(hist || [])).catch(console.error);
+      }
+    });
+
+    const offCheck = EventsOn("monitor:check-complete", (results: parser.ParsedResults) => {
+      if (results) setCurrentResults(results);
+    });
+
+    return () => {
+      if (offResults) offResults();
+      if (offCheck) offCheck();
+      EventsOff("monitor:results-updated");
+      EventsOff("monitor:check-complete");
+    };
   }, []);
 
   const handleClearHistory = async () => {

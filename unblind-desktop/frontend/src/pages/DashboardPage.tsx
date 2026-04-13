@@ -1,13 +1,16 @@
-import { useEffect, useState } from "react";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { useEffect, useState, useCallback, useRef } from "react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Play, Pause, Square, RefreshCw, LogIn } from "lucide-react";
-import { 
-  GetAppState, 
-  GetConfig, 
-  StartLoginFlow, 
-  CheckLoginStatus, 
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Play, Pause, Square, RefreshCw, LogIn, Loader2 } from "lucide-react";
+import { EventsOn, EventsOff } from "../../wailsjs/runtime/runtime";
+import {
+  GetAppState,
+  GetConfig,
+  StartLoginFlow,
+  CheckLoginStatus,
+  CloseBrowser,
   ValidateSession,
   StartMonitoring,
   StopMonitoring,
@@ -15,7 +18,7 @@ import {
   ResumeMonitoring,
   GetMonitorStatus,
   GetCurrentResults,
-  CheckNow
+  CheckNow,
 } from "../../wailsjs/go/main/App";
 import { appstate, config, monitor, parser } from "../../wailsjs/go/models";
 
@@ -26,53 +29,122 @@ export function DashboardPage() {
   const [currentResults, setCurrentResults] = useState<parser.ParsedResults | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isCheckingLogin, setIsCheckingLogin] = useState(false);
+  const [isTransitioning, setIsTransitioning] = useState(false);
+  const [statusMessage, setStatusMessage] = useState<string>("");
+  const loginCheckRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const fetchState = async () => {
+  // Fetch all state from backend
+  const fetchState = useCallback(async () => {
     try {
       const [state, cfg, status, results] = await Promise.all([
         GetAppState(),
         GetConfig(),
         GetMonitorStatus(),
-        GetCurrentResults()
+        GetCurrentResults(),
       ]);
       setAppState(state);
       setAppConfig(cfg);
       setMonitorStatus(status);
-      setCurrentResults(results);
+      if (results) setCurrentResults(results);
     } catch (err) {
       console.error("Failed to fetch state:", err);
     }
-  };
+  }, []);
 
+  // Initial fetch + fallback polling (5s since we have events now)
   useEffect(() => {
     fetchState();
-    // Poll for state changes every 2 seconds
-    const interval = setInterval(fetchState, 2000);
+    const interval = setInterval(fetchState, 5000);
     return () => clearInterval(interval);
+  }, [fetchState]);
+
+  // Subscribe to Wails events for real-time updates
+  useEffect(() => {
+    const offStatus = EventsOn("monitor:status-changed", (status: monitor.MonitorStatus) => {
+      setMonitorStatus(status);
+      // Also refresh app state when monitor status changes
+      GetAppState().then(setAppState).catch(console.error);
+    });
+
+    const offResults = EventsOn("monitor:results-updated", (results: parser.ParsedResults) => {
+      if (results) setCurrentResults(results);
+    });
+
+    const offCheck = EventsOn("monitor:check-complete", (results: parser.ParsedResults) => {
+      if (results) setCurrentResults(results);
+      // Refresh monitor status to get updated check times
+      GetMonitorStatus().then(setMonitorStatus).catch(console.error);
+    });
+
+    return () => {
+      if (offStatus) offStatus();
+      if (offResults) offResults();
+      if (offCheck) offCheck();
+      // Fallback cleanup
+      EventsOff("monitor:status-changed");
+      EventsOff("monitor:results-updated");
+      EventsOff("monitor:check-complete");
+    };
   }, []);
+
+  // Login check polling — polls CheckLoginStatus when login window is open
+  useEffect(() => {
+    if (!isCheckingLogin) {
+      if (loginCheckRef.current) {
+        clearInterval(loginCheckRef.current);
+        loginCheckRef.current = null;
+      }
+      return;
+    }
+
+    loginCheckRef.current = setInterval(async () => {
+      try {
+        const success = await CheckLoginStatus();
+        if (success) {
+          setIsCheckingLogin(false);
+          // Auto transition: close browser → start monitoring
+          setIsTransitioning(true);
+          setStatusMessage("登录成功，正在关闭浏览器...");
+
+          try {
+            CloseBrowser();
+            setStatusMessage("正在启动无头监控...");
+            await StartMonitoring();
+            setStatusMessage("");
+            await fetchState();
+          } catch (err) {
+            console.error("Failed to start monitoring after login:", err);
+            setStatusMessage("自动启动监控失败，请手动点击开始监控");
+            await fetchState();
+          } finally {
+            setIsTransitioning(false);
+          }
+        }
+      } catch (err) {
+        console.error("Failed to check login:", err);
+      }
+    }, 2000);
+
+    return () => {
+      if (loginCheckRef.current) {
+        clearInterval(loginCheckRef.current);
+        loginCheckRef.current = null;
+      }
+    };
+  }, [isCheckingLogin, fetchState]);
+
+  // ==================== Handlers ====================
 
   const handleStartLogin = async () => {
     setIsLoading(true);
     try {
       await StartLoginFlow();
-      // Start checking for login success
       setIsCheckingLogin(true);
+      setStatusMessage("等待登录...");
     } catch (err) {
       console.error("Failed to start login:", err);
     } finally {
       setIsLoading(false);
-    }
-  };
-
-  const handleCheckLogin = async () => {
-    try {
-      const success = await CheckLoginStatus();
-      if (success) {
-        setIsCheckingLogin(false);
-        await fetchState();
-      }
-    } catch (err) {
-      console.error("Failed to check login:", err);
     }
   };
 
@@ -117,7 +189,7 @@ export function DashboardPage() {
       await PauseMonitoring();
       await fetchState();
     } catch (err) {
-      console.error("Failed to pause monitoring:", err);
+      console.error("Failed to pause:", err);
     }
   };
 
@@ -126,7 +198,7 @@ export function DashboardPage() {
       await ResumeMonitoring();
       await fetchState();
     } catch (err) {
-      console.error("Failed to resume monitoring:", err);
+      console.error("Failed to resume:", err);
     }
   };
 
@@ -142,50 +214,7 @@ export function DashboardPage() {
     }
   };
 
-  // Auto-check login status when checking
-  useEffect(() => {
-    if (!isCheckingLogin) return;
-    const interval = setInterval(handleCheckLogin, 2000);
-    return () => clearInterval(interval);
-  }, [isCheckingLogin]);
-
-  const getStateBadge = () => {
-    const state = appState?.state || "idle";
-    switch (state) {
-      case "idle":
-        return <Badge variant="secondary">空闲</Badge>;
-      case "needs_login":
-        return <Badge variant="destructive">需要登录</Badge>;
-      case "ready":
-        return <Badge variant="outline">就绪</Badge>;
-      case "running":
-        return <Badge className="bg-green-500">运行中</Badge>;
-      case "session_expired":
-        return <Badge variant="destructive">会话过期</Badge>;
-      case "error":
-        return <Badge variant="destructive">错误</Badge>;
-      default:
-        return <Badge variant="secondary">未知</Badge>;
-    }
-  };
-
-  const getMonitorStateBadge = () => {
-    const state = monitorStatus?.state || "stopped";
-    switch (state) {
-      case "stopped":
-        return <Badge variant="secondary">已停止</Badge>;
-      case "starting":
-        return <Badge variant="outline">启动中</Badge>;
-      case "running":
-        return <Badge className="bg-green-500">运行中</Badge>;
-      case "paused":
-        return <Badge variant="outline">已暂停</Badge>;
-      case "error":
-        return <Badge variant="destructive">错误</Badge>;
-      default:
-        return <Badge variant="secondary">未知</Badge>;
-    }
-  };
+  // ==================== Helpers ====================
 
   const formatTime = (time: any) => {
     if (!time) return "-";
@@ -198,199 +227,269 @@ export function DashboardPage() {
     }
   };
 
-  const browserMode = appConfig?.browserMode === "system" ? "系统浏览器" : "下载内核";
-  const notificationMethod = appConfig?.barkEnabled ? "Bark" : "无";
-  const isMonitorRunning = monitorStatus?.state === "running";
-  const isMonitorPaused = monitorStatus?.state === "paused";
-
-  const renderResultsSummary = () => {
-    if (!currentResults || !currentResults.reviews || currentResults.reviews.length === 0) {
-      return <p className="text-sm text-muted-foreground">暂无结果，请先登录并开始监控</p>;
-    }
-
+  const getStateBadge = () => {
+    const state = appState?.state || "idle";
+    const map: Record<string, { label: string; variant: "default" | "secondary" | "destructive" | "outline" }> = {
+      idle: { label: "空闲", variant: "secondary" },
+      needs_login: { label: "需要登录", variant: "destructive" },
+      ready: { label: "就绪", variant: "outline" },
+      running: { label: "运行中", variant: "default" },
+      session_expired: { label: "会话过期", variant: "destructive" },
+      error: { label: "错误", variant: "destructive" },
+    };
+    const info = map[state] || { label: "未知", variant: "secondary" as const };
     return (
-      <div className="space-y-2">
-        {currentResults.reviews.map((review, index) => (
-          <div key={index} className="flex justify-between items-center text-sm">
-            <span className="font-medium">专家{index + 1}</span>
-            <div className="flex items-center gap-2">
-              <Badge variant="outline">{review.overallEvaluation}</Badge>
-              <Badge className="bg-green-500">{review.reviewResult}</Badge>
-            </div>
-          </div>
-        ))}
-        {currentResults.finalResult && (
-          <div className="pt-2 mt-2 border-t">
-            <p className="text-sm font-medium">{currentResults.finalResult}</p>
-          </div>
-        )}
-      </div>
+      <Badge
+        variant={info.variant === "default" ? undefined : info.variant}
+        className={state === "running" ? "bg-green-500 hover:bg-green-600" : ""}
+      >
+        {info.label}
+      </Badge>
     );
   };
 
+  const getMonitorBadge = () => {
+    const state = monitorStatus?.state || "stopped";
+    const map: Record<string, { label: string; className: string }> = {
+      stopped: { label: "已停止", className: "" },
+      starting: { label: "启动中", className: "" },
+      running: { label: "监控中", className: "bg-green-500 hover:bg-green-600" },
+      paused: { label: "已暂停", className: "bg-yellow-500 hover:bg-yellow-600" },
+      error: { label: "错误", className: "bg-red-500 hover:bg-red-600" },
+    };
+    const info = map[state] || { label: "未知", className: "" };
+    return (
+      <Badge variant={info.className ? undefined : "secondary"} className={info.className}>
+        {info.label}
+      </Badge>
+    );
+  };
+
+  const getResultBadgeClass = (result: string) => {
+    if (!result) return "bg-gray-400";
+    if (result.includes("同意") || result.includes("通过")) return "bg-green-500 hover:bg-green-600";
+    if (result.includes("不同意") || result.includes("不通过") || result.includes("修改")) return "bg-red-500 hover:bg-red-600";
+    return "bg-yellow-500 hover:bg-yellow-600";
+  };
+
+  const isMonitorRunning = monitorStatus?.state === "running";
+  const isMonitorPaused = monitorStatus?.state === "paused";
+  const isMonitorActive = isMonitorRunning || isMonitorPaused;
+  const hasResults = currentResults?.reviews && currentResults.reviews.length > 0;
+
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">仪表盘</h1>
-          <p className="text-muted-foreground">盲审结果监控状态</p>
-        </div>
-        <div className="flex items-center gap-2">
+    <div className="space-y-4">
+      {/* ===== Compact Status Bar ===== */}
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <div className="flex items-center gap-3">
+          <h1 className="text-xl font-bold">仪表盘</h1>
           {getStateBadge()}
-          {getMonitorStateBadge()}
+          {getMonitorBadge()}
+        </div>
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <span>上次: {formatTime(monitorStatus?.lastCheckTime || appState?.lastCheckTime)}</span>
+          <span className="text-muted-foreground/40">|</span>
+          <span>下次: {formatTime(monitorStatus?.nextCheckTime || appState?.nextCheckTime)}</span>
+          <span className="text-muted-foreground/40">|</span>
+          <span>已检查: {monitorStatus?.checkCount || 0}次</span>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">监控状态</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-2">
-              <div className="flex justify-between text-sm">
-                <span className="text-muted-foreground">上次检查</span>
-                <span>{formatTime(monitorStatus?.lastCheckTime || appState?.lastCheckTime)}</span>
-              </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-muted-foreground">下次检查</span>
-                <span>{formatTime(monitorStatus?.nextCheckTime || appState?.nextCheckTime)}</span>
-              </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-muted-foreground">检查次数</span>
-                <span>{monitorStatus?.checkCount || 0}</span>
-              </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-muted-foreground">会话状态</span>
-                <span>{appState?.sessionValid ? "有效" : "无效或过期"}</span>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">配置信息</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-2">
-              <div className="flex justify-between text-sm">
-                <span className="text-muted-foreground">浏览器模式</span>
-                <span>{browserMode}</span>
-              </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-muted-foreground">通知方式</span>
-                <span>{notificationMethod}</span>
-              </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-muted-foreground">刷新间隔</span>
-                <span>{appConfig?.refreshIntervalSec || 300}秒</span>
-              </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-muted-foreground">浏览器检测</span>
-                <span>{appState?.browserDetected ? "已检测到" : "未检测到"}</span>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {(appState?.lastError || monitorStatus?.lastError) && (
-        <Card className="border-destructive">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-destructive">错误信息</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-sm">{monitorStatus?.lastError || appState?.lastError}</p>
-          </CardContent>
-        </Card>
+      {/* ===== Status Message / Transition Banner ===== */}
+      {(statusMessage || isTransitioning) && (
+        <div className="flex items-center gap-2 p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-700">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          <span>{statusMessage || "处理中..."}</span>
+        </div>
       )}
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-sm font-medium">最近结果</CardTitle>
-          <CardDescription>最近一次解析的盲审结果摘要</CardDescription>
-        </CardHeader>
-        <CardContent>
-          {renderResultsSummary()}
-        </CardContent>
-      </Card>
+      {/* ===== Error Banner ===== */}
+      {(appState?.lastError || monitorStatus?.lastError) && (
+        <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
+          {monitorStatus?.lastError || appState?.lastError}
+        </div>
+      )}
 
+      {/* ===== Control Buttons ===== */}
       <div className="flex gap-2 flex-wrap">
-        {!isMonitorRunning && !isMonitorPaused ? (
-          <Button 
-            className="flex items-center gap-2" 
+        {!isMonitorActive ? (
+          <Button
+            size="sm"
+            className="flex items-center gap-1"
             onClick={handleStartMonitoring}
-            disabled={!appState?.sessionValid || isLoading}
+            disabled={!appState?.sessionValid || isLoading || isTransitioning}
           >
-            <Play className="h-4 w-4" />
+            <Play className="h-3.5 w-3.5" />
             开始监控
           </Button>
         ) : (
-          <Button 
+          <Button
+            size="sm"
             variant="destructive"
-            className="flex items-center gap-2"
+            className="flex items-center gap-1"
             onClick={handleStopMonitoring}
             disabled={isLoading}
           >
-            <Square className="h-4 w-4" />
+            <Square className="h-3.5 w-3.5" />
             停止监控
           </Button>
         )}
 
         {isMonitorRunning && (
-          <Button 
-            variant="outline" 
-            className="flex items-center gap-2"
-            onClick={handlePauseMonitoring}
-          >
-            <Pause className="h-4 w-4" />
+          <Button size="sm" variant="outline" className="flex items-center gap-1" onClick={handlePauseMonitoring}>
+            <Pause className="h-3.5 w-3.5" />
             暂停
           </Button>
         )}
 
         {isMonitorPaused && (
-          <Button 
-            variant="outline" 
-            className="flex items-center gap-2"
-            onClick={handleResumeMonitoring}
-          >
-            <Play className="h-4 w-4" />
+          <Button size="sm" variant="outline" className="flex items-center gap-1" onClick={handleResumeMonitoring}>
+            <Play className="h-3.5 w-3.5" />
             恢复
           </Button>
         )}
 
-        {(isMonitorRunning || isMonitorPaused) && (
-          <Button 
-            variant="outline" 
-            className="flex items-center gap-2"
+        {isMonitorActive && (
+          <Button
+            size="sm"
+            variant="outline"
+            className="flex items-center gap-1"
             onClick={handleCheckNow}
             disabled={isLoading}
           >
-            <RefreshCw className={`h-4 w-4 ${isLoading ? "animate-spin" : ""}`} />
+            <RefreshCw className={`h-3.5 w-3.5 ${isLoading ? "animate-spin" : ""}`} />
             立即检查
           </Button>
         )}
 
-        <Button 
-          variant="outline" 
-          className="flex items-center gap-2"
+        <div className="flex-1" />
+
+        <Button
+          size="sm"
+          variant="outline"
+          className="flex items-center gap-1"
           onClick={handleStartLogin}
-          disabled={isLoading || isMonitorRunning}
+          disabled={isLoading || isMonitorActive || isCheckingLogin || isTransitioning}
         >
-          <LogIn className="h-4 w-4" />
-          {isCheckingLogin ? "等待登录..." : "打开登录窗口"}
+          <LogIn className="h-3.5 w-3.5" />
+          {isCheckingLogin ? "等待登录..." : "登录"}
         </Button>
 
-        <Button 
-          variant="ghost" 
-          className="flex items-center gap-2"
+        <Button
+          size="sm"
+          variant="ghost"
+          className="flex items-center gap-1"
           onClick={handleValidateSession}
-          disabled={isLoading || isMonitorRunning}
+          disabled={isLoading || isMonitorActive}
         >
-          <RefreshCw className={`h-4 w-4 ${isLoading ? "animate-spin" : ""}`} />
+          <RefreshCw className={`h-3.5 w-3.5 ${isLoading ? "animate-spin" : ""}`} />
           验证会话
         </Button>
+      </div>
+
+      {/* ===== Results Area (Primary Focus) ===== */}
+      <Card>
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-base">盲审结果</CardTitle>
+            {hasResults && (
+              <span className="text-xs text-muted-foreground">
+                更新于 {formatTime(currentResults?.extractTime)}
+              </span>
+            )}
+          </div>
+        </CardHeader>
+        <CardContent>
+          {hasResults ? (
+            <div className="space-y-4">
+              {/* Final result banner */}
+              {currentResults!.finalResult && (
+                <div className="p-3 bg-muted rounded-lg text-center">
+                  <span className="text-sm font-medium">最终结果：</span>
+                  <span className="text-sm font-bold ml-1">{currentResults!.finalResult}</span>
+                </div>
+              )}
+
+              {/* Results table */}
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="w-[80px]">专家</TableHead>
+                    <TableHead>评阅时间</TableHead>
+                    <TableHead>总体评价</TableHead>
+                    <TableHead>评阅结果</TableHead>
+                    <TableHead>备注</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {currentResults!.reviews.map((review, index) => (
+                    <TableRow key={index}>
+                      <TableCell className="font-medium">
+                        {review.expertName || `专家${index + 1}`}
+                      </TableCell>
+                      <TableCell className="text-muted-foreground text-xs">
+                        {review.reviewTime || "-"}
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant="outline">{review.overallEvaluation || "-"}</Badge>
+                      </TableCell>
+                      <TableCell>
+                        <Badge className={getResultBadgeClass(review.reviewResult)}>
+                          {review.reviewResult || "-"}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-muted-foreground text-xs">
+                        {review.remark || "-"}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          ) : (
+            <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
+              {isMonitorActive ? (
+                <>
+                  <Loader2 className="h-8 w-8 animate-spin mb-3" />
+                  <p className="text-sm">正在等待第一次检查结果...</p>
+                </>
+              ) : appState?.sessionValid ? (
+                <>
+                  <RefreshCw className="h-8 w-8 mb-3 opacity-40" />
+                  <p className="text-sm">会话有效，点击"开始监控"获取盲审结果</p>
+                </>
+              ) : (
+                <>
+                  <LogIn className="h-8 w-8 mb-3 opacity-40" />
+                  <p className="text-sm">请先登录浙大研究生系统</p>
+                  <p className="text-xs mt-1">点击"登录"按钮打开浏览器窗口</p>
+                </>
+              )}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* ===== Compact Info Row ===== */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div className="p-3 border rounded-lg">
+          <p className="text-xs text-muted-foreground">浏览器</p>
+          <p className="text-sm font-medium mt-0.5">
+            {appConfig?.browserMode === "downloaded" ? "下载内核" : "系统浏览器"}
+          </p>
+        </div>
+        <div className="p-3 border rounded-lg">
+          <p className="text-xs text-muted-foreground">通知</p>
+          <p className="text-sm font-medium mt-0.5">{appConfig?.barkEnabled ? "Bark" : "未启用"}</p>
+        </div>
+        <div className="p-3 border rounded-lg">
+          <p className="text-xs text-muted-foreground">刷新间隔</p>
+          <p className="text-sm font-medium mt-0.5">{appConfig?.refreshIntervalSec || 300}秒</p>
+        </div>
+        <div className="p-3 border rounded-lg">
+          <p className="text-xs text-muted-foreground">会话</p>
+          <p className="text-sm font-medium mt-0.5">{appState?.sessionValid ? "有效" : "无效"}</p>
+        </div>
       </div>
     </div>
   );

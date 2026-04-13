@@ -63,8 +63,9 @@ type Monitor struct {
 	stopChan   chan struct{}
 	doneChan   chan struct{}
 
-	onStatusChange func(MonitorStatus)
-	onResultsFound func(*parser.ParsedResults)
+	onStatusChange  func(MonitorStatus)
+	onResultsFound  func(*parser.ParsedResults)
+	onCheckComplete func(*parser.ParsedResults)
 }
 
 // NewMonitor creates a new monitor
@@ -115,6 +116,13 @@ func (m *Monitor) SetOnResultsFound(callback func(*parser.ParsedResults)) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.onResultsFound = callback
+}
+
+// SetOnCheckComplete sets the callback for when each check completes (regardless of change)
+func (m *Monitor) SetOnCheckComplete(callback func(*parser.ParsedResults)) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.onCheckComplete = callback
 }
 
 // UpdateConfig updates the monitor configuration
@@ -375,6 +383,15 @@ func (m *Monitor) performCheck() (*parser.ParsedResults, error) {
 	}
 
 	m.updateStatus()
+
+	// Always notify frontend of latest results after each check
+	m.mu.RLock()
+	checkCallback := m.onCheckComplete
+	m.mu.RUnlock()
+	if checkCallback != nil {
+		checkCallback(results)
+	}
+
 	return results, nil
 }
 

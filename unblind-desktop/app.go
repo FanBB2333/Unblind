@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 
+	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
+
 	"unblind-desktop/internal/appstate"
 	"unblind-desktop/internal/auth"
 	"unblind-desktop/internal/browser"
@@ -175,6 +177,8 @@ func (a *App) CheckLoginStatus() (bool, error) {
 	if success {
 		a.stateManager.SetSessionValid(true)
 		a.stateManager.SetState(appstate.StateReady)
+		// Notify frontend that login succeeded
+		wailsRuntime.EventsEmit(a.ctx, "auth:login-detected")
 	}
 
 	return success, nil
@@ -283,6 +287,18 @@ func (a *App) StartMonitoring() error {
 			case monitor.StateStopped:
 				a.stateManager.SetState(appstate.StateReady)
 			}
+			// Push real-time status update to frontend
+			wailsRuntime.EventsEmit(a.ctx, "monitor:status-changed", status)
+		})
+
+		a.monitor.SetOnResultsFound(func(results *parser.ParsedResults) {
+			// Push real-time results update to frontend (only on change)
+			wailsRuntime.EventsEmit(a.ctx, "monitor:results-updated", results)
+		})
+
+		a.monitor.SetOnCheckComplete(func(results *parser.ParsedResults) {
+			// Push results after every check so dashboard always has latest
+			wailsRuntime.EventsEmit(a.ctx, "monitor:check-complete", results)
 		})
 	} else {
 		a.monitor.UpdateConfig(monitorCfg)
