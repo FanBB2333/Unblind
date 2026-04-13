@@ -4,14 +4,15 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { Bell, Send, Check, X } from "lucide-react";
-import { GetConfig, SaveConfig } from "../../wailsjs/go/main/App";
+import { Bell, Send, Check, X, Loader2 } from "lucide-react";
+import { GetConfig, SaveConfig, TestBarkNotification } from "../../wailsjs/go/main/App";
 import { config } from "../../wailsjs/go/models";
 
 export function NotificationsPage() {
   const [appConfig, setAppConfig] = useState<config.AppConfig | null>(null);
   const [barkUrl, setBarkUrl] = useState("");
   const [isSaving, setIsSaving] = useState(false);
+  const [isTesting, setIsTesting] = useState(false);
   const [testResult, setTestResult] = useState<"success" | "error" | null>(null);
 
   const fetchConfig = async () => {
@@ -79,18 +80,16 @@ export function NotificationsPage() {
       setTestResult("error");
       return;
     }
+    setIsTesting(true);
     try {
-      // Simple test - just try to fetch the bark URL
-      const testUrl = `${barkUrl}/测试通知/这是一条来自Unblind的测试通知`;
-      const response = await fetch(testUrl);
-      if (response.ok) {
-        setTestResult("success");
-      } else {
-        setTestResult("error");
-      }
+      // Use backend API to test Bark notification
+      await TestBarkNotification(barkUrl);
+      setTestResult("success");
     } catch (err) {
       console.error("Failed to test Bark:", err);
       setTestResult("error");
+    } finally {
+      setIsTesting(false);
     }
   };
 
@@ -133,7 +132,11 @@ export function NotificationsPage() {
                 onClick={handleSave}
                 disabled={isSaving}
               >
-                保存
+                {isSaving ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  "保存"
+                )}
               </Button>
             </div>
             <p className="text-xs text-muted-foreground">
@@ -145,8 +148,13 @@ export function NotificationsPage() {
               variant="outline" 
               className="flex items-center gap-2"
               onClick={handleTestBark}
+              disabled={isTesting || !barkUrl}
             >
-              <Send className="h-4 w-4" />
+              {isTesting ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Send className="h-4 w-4" />
+              )}
               发送测试通知
             </Button>
             {testResult === "success" && (
@@ -166,7 +174,7 @@ export function NotificationsPage() {
       <Card>
         <CardHeader>
           <CardTitle>系统通知</CardTitle>
-          <CardDescription>使用操作系统原生通知</CardDescription>
+          <CardDescription>使用操作系统原生通知（即将支持）</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex items-center justify-between">
@@ -175,10 +183,11 @@ export function NotificationsPage() {
               id="system-notification"
               checked={appConfig?.systemNotificationEnabled || false}
               onCheckedChange={handleToggleSystem}
+              disabled
             />
           </div>
           <p className="text-xs text-muted-foreground">
-            系统通知作为 Bark 的补充，在桌面显示通知横幅
+            系统通知功能正在开发中，将作为 Bark 的补充，在桌面显示通知横幅
           </p>
         </CardContent>
       </Card>

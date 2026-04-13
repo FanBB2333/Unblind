@@ -9,6 +9,10 @@ import (
 	"unblind-desktop/internal/auth"
 	"unblind-desktop/internal/browser"
 	"unblind-desktop/internal/config"
+	"unblind-desktop/internal/monitor"
+	"unblind-desktop/internal/notify"
+	"unblind-desktop/internal/parser"
+	"unblind-desktop/internal/storage"
 )
 
 // App struct
@@ -18,6 +22,9 @@ type App struct {
 	stateManager    *appstate.Manager
 	browserDetector *browser.Detector
 	authManager     *auth.Manager
+	monitor         *monitor.Monitor
+	notifier        *notify.Notifier
+	storage         *storage.Storage
 	dataDir         string
 }
 
@@ -50,6 +57,16 @@ func (a *App) startup(ctx context.Context) {
 	// Initialize auth manager
 	a.authManager = auth.NewManager(a.dataDir)
 
+	// Initialize notifier
+	a.notifier = notify.NewNotifier()
+
+	// Initialize storage
+	stor, err := storage.NewStorage(a.dataDir)
+	if err != nil {
+		println("Failed to initialize storage:", err.Error())
+	}
+	a.storage = stor
+
 	// Check for available browsers on startup
 	browsers := a.browserDetector.DetectBrowsers()
 	hasBrowser := false
@@ -64,6 +81,11 @@ func (a *App) startup(ctx context.Context) {
 
 // shutdown is called when the app is closing
 func (a *App) shutdown(ctx context.Context) {
+	// Stop monitor if running
+	if a.monitor != nil {
+		a.monitor.Stop()
+	}
+
 	// Close browser if open
 	if a.authManager != nil {
 		a.authManager.CloseBrowser()
@@ -200,4 +222,140 @@ func (a *App) AutoFillCredentials(username, password string) error {
 // CloseBrowser closes the browser window
 func (a *App) CloseBrowser() {
 	a.authManager.CloseBrowser()
+}
+
+// ==================== Monitor APIs ====================
+
+// StartMonitoring starts the monitoring loop
+func (a *App) StartMonitoring() error {
+	cfg := a.configManager.Get()
+
+	// Get browser path
+	browserPath := cfg.BrowserPath
+	if browserPath == "" {
+		best := a.browserDetector.GetBestBrowser()
+		if best != nil {
+			browserPath = best.Path
+		}
+	}
+
+	// Create monitor config
+	monitorCfg := monitor.Config{
+		RefreshIntervalSec: cfg.RefreshIntervalSec,
+		BarkEnabled:        cfg.BarkEnabled,
+		BarkBaseURL:        cfg.BarkBaseURL,
+		BrowserPath:        browserPath,
+		ProfileDir:         filepath.Join(a.dataDir, "chrome-profile"),
+	}
+
+	// Create monitor if not exists
+	if a.monitor == nil {
+		mon, err := monitor.NewMonitor(a.dataDir, monitorCfg)
+		if err != nil {
+			return err
+		}
+		a.monitor = mon
+
+		// Set callbacks
+		a.monitor.SetOnStatusChange(func(status monitor.MonitorStatus) {
+			// Update app state based on monitor status
+			switch status.State {
+			case monitor.StateRunning:
+				a.stateManager.SetState(appstate.StateRunning)
+				a.stateManager.SetLastCheckTime(status.LastCheckTime)
+				a.stateManager.SetNextCheckTime(status.NextCheckTime)
+			case monitor.StateError:
+				a.stateManager.SetError(status.LastError)
+			case monitor.StateStopped:
+				a.stateManager.SetState(appstate.StateReady)
+			}
+		})
+	} else {
+		a.monitor.UpdateConfig(monitorCfg)
+	}
+
+	return a.monitor.Start()
+}
+
+// StopMonitoring stops the monitoring loop
+func (a *App) StopMonitoring() {
+	if a.monitor != nil {
+		a.monitor.Stop()
+	}
+	a.stateManager.SetState(appstate.StateReady)
+}
+
+// PauseMonitoring pauses the monitoring loop
+func (a *App) PauseMonitoring() {
+	if a.monitor != nil {
+		a.monitor.Pause()
+	}
+}
+
+// ResumeMonitoring resumes the monitoring loop
+func (a *App) ResumeMonitoring() {
+	if a.monitor != nil {
+		a.monitor.Resume()
+	}
+}
+
+// GetMonitorStatus returns the current monitor status
+func (a *App) GetMonitorStatus() *monitor.MonitorStatus {
+	if a.monitor == nil {
+		return &monitor.MonitorStatus{
+			State: monitor.StateStopped,
+		}
+	}
+	status := a.monitor.GetStatus()
+	return &status
+}
+
+// CheckNow triggers an immediate check
+func (a *App) CheckNow() (*parser.ParsedResults, error) {
+	if a.monitor == nil {
+		return nil, nil
+	}
+	return a.monitor.CheckNow()
+}
+
+// ==================== Results APIs ====================
+
+// GetCurrentResults returns the current stored results
+func (a *App) GetCurrentResults() *parser.ParsedResults {
+	if a.storage == nil {
+		return nil
+	}
+	return a.storage.GetCurrentResults()
+}
+
+// GetResultsHistory returns the results history
+func (a *App) GetResultsHistory() []storage.HistoryItem {
+	if a.storage == nil {
+		return []storage.HistoryItem{}
+	}
+	return a.storage.GetHistory()
+}
+
+// ClearResultsHistory clears the results history
+func (a *App) ClearResultsHistory() error {
+	if a.storage == nil {
+		return nil
+	}
+	return a.storage.ClearHistory()
+}
+
+// ==================== Notification APIs ====================
+
+// TestBarkNotification sends a test notification
+func (a *App) TestBarkNotification(barkURL string) error {
+	return a.notifier.TestBarkNotification(barkURL)
+}
+
+// SendNotification sends a notification with the given title and body
+func (a *App) SendNotification(title, body string) error {
+	cfg := a.configManager.Get()
+	if !cfg.BarkEnabled || cfg.BarkBaseURL == "" {
+		return nil
+	}
+	return a.notifier.SendBarkNotification(cfg.BarkBaseURL, title, body)
 }

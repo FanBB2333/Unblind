@@ -10,6 +10,14 @@ export function CheckLoginStatus() {
   return window['go']['main']['App']['CheckLoginStatus']();
 }
 
+export function CheckNow() {
+  return window['go']['main']['App']['CheckNow']();
+}
+
+export function ClearResultsHistory() {
+  return window['go']['main']['App']['ClearResultsHistory']();
+}
+
 export function ClearSession() {
   return window['go']['main']['App']['ClearSession']();
 }
@@ -34,6 +42,18 @@ export function GetConfig() {
   return window['go']['main']['App']['GetConfig']();
 }
 
+export function GetCurrentResults() {
+  return window['go']['main']['App']['GetCurrentResults']();
+}
+
+export function GetMonitorStatus() {
+  return window['go']['main']['App']['GetMonitorStatus']();
+}
+
+export function GetResultsHistory() {
+  return window['go']['main']['App']['GetResultsHistory']();
+}
+
 export function GetSession() {
   return window['go']['main']['App']['GetSession']();
 }
@@ -42,12 +62,36 @@ export function NavigateToTarget() {
   return window['go']['main']['App']['NavigateToTarget']();
 }
 
+export function PauseMonitoring() {
+  return window['go']['main']['App']['PauseMonitoring']();
+}
+
+export function ResumeMonitoring() {
+  return window['go']['main']['App']['ResumeMonitoring']();
+}
+
 export function SaveConfig(arg1) {
   return window['go']['main']['App']['SaveConfig'](arg1);
 }
 
+export function SendNotification(arg1, arg2) {
+  return window['go']['main']['App']['SendNotification'](arg1, arg2);
+}
+
 export function StartLoginFlow() {
   return window['go']['main']['App']['StartLoginFlow']();
+}
+
+export function StartMonitoring() {
+  return window['go']['main']['App']['StartMonitoring']();
+}
+
+export function StopMonitoring() {
+  return window['go']['main']['App']['StopMonitoring']();
+}
+
+export function TestBarkNotification(arg1) {
+  return window['go']['main']['App']['TestBarkNotification'](arg1);
 }
 
 export function ValidateSession() {
