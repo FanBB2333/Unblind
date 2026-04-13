@@ -4,13 +4,29 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Settings, FileText, Download, Save, Copy, Check } from "lucide-react";
 import { GetConfig, SaveConfig, GenerateDiagnosticReport, ExportDiagnosticReport, GetDiagnosticReportAsString, GetDefaultDiagnosticPath } from "../../wailsjs/go/main/App";
 import { config, diagnostics } from "../../wailsjs/go/models";
 
+const REFRESH_INTERVAL_PRESETS = [
+  { value: 60, label: "1 分钟" },
+  { value: 180, label: "3 分钟" },
+  { value: 300, label: "5 分钟" },
+  { value: 600, label: "10 分钟" },
+  { value: 900, label: "15 分钟" },
+];
+
+function getRefreshIntervalPreset(interval: number) {
+  return REFRESH_INTERVAL_PRESETS.some((preset) => preset.value === interval)
+    ? String(interval)
+    : "custom";
+}
+
 export function SettingsPage() {
   const [appConfig, setAppConfig] = useState<config.AppConfig | null>(null);
   const [refreshInterval, setRefreshInterval] = useState(300);
+  const [refreshIntervalPreset, setRefreshIntervalPreset] = useState("300");
   const [isSaving, setIsSaving] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [exportPath, setExportPath] = useState("");
@@ -25,7 +41,9 @@ export function SettingsPage() {
     try {
       const cfg = await GetConfig();
       setAppConfig(cfg);
-      setRefreshInterval(cfg.refreshIntervalSec || 300);
+      const interval = cfg.refreshIntervalSec || 300;
+      setRefreshInterval(interval);
+      setRefreshIntervalPreset(getRefreshIntervalPreset(interval));
       setLogs(prev => [...prev, `[配置] 刷新间隔: ${cfg.refreshIntervalSec}秒`]);
     } catch (err) {
       console.error("Failed to fetch config:", err);
@@ -52,13 +70,14 @@ export function SettingsPage() {
     if (!appConfig) return;
     setIsSaving(true);
     try {
+      const resolvedRefreshInterval = Math.max(60, refreshInterval || 60);
       const newConfig = new config.AppConfig({
         ...appConfig,
-        refreshIntervalSec: refreshInterval,
+        refreshIntervalSec: resolvedRefreshInterval,
       });
       await SaveConfig(newConfig);
       await fetchConfig();
-      setLogs(prev => [...prev, `[配置] 已保存刷新间隔: ${refreshInterval}秒`]);
+      setLogs(prev => [...prev, `[配置] 已保存刷新间隔: ${resolvedRefreshInterval}秒`]);
     } catch (err) {
       console.error("Failed to save config:", err);
       setLogs(prev => [...prev, `[错误] 保存配置失败: ${err}`]);
@@ -124,6 +143,13 @@ export function SettingsPage() {
     return new Date().toLocaleTimeString("zh-CN");
   };
 
+  const handleRefreshPresetChange = (value: string) => {
+    setRefreshIntervalPreset(value);
+    if (value !== "custom") {
+      setRefreshInterval(parseInt(value, 10));
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div>
@@ -140,16 +166,35 @@ export function SettingsPage() {
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid gap-2">
-            <Label htmlFor="refresh-interval">刷新间隔（秒）</Label>
-            <div className="flex gap-2">
-              <Input
-                id="refresh-interval"
-                type="number"
-                value={refreshInterval}
-                onChange={(e) => setRefreshInterval(parseInt(e.target.value) || 60)}
-                min={60}
-                className="w-32"
-              />
+            <Label>刷新间隔（秒）</Label>
+            <div className="flex flex-col gap-2 md:flex-row md:items-center">
+              <Select
+                value={refreshIntervalPreset}
+                onValueChange={handleRefreshPresetChange}
+              >
+                <SelectTrigger className="w-full md:w-48">
+                  <SelectValue placeholder="选择刷新间隔" />
+                </SelectTrigger>
+                <SelectContent>
+                  {REFRESH_INTERVAL_PRESETS.map((preset) => (
+                    <SelectItem key={preset.value} value={String(preset.value)}>
+                      {preset.label}
+                    </SelectItem>
+                  ))}
+                  <SelectItem value="custom">自定义</SelectItem>
+                </SelectContent>
+              </Select>
+              {refreshIntervalPreset === "custom" && (
+                <Input
+                  type="number"
+                  value={refreshInterval}
+                  onChange={(e) => setRefreshInterval(parseInt(e.target.value, 10) || 60)}
+                  min={60}
+                  step={1}
+                  className="w-full md:w-32"
+                  placeholder="秒数"
+                />
+              )}
               <Button 
                 variant="outline"
                 onClick={handleSave}
@@ -161,7 +206,7 @@ export function SettingsPage() {
               </Button>
             </div>
             <p className="text-xs text-muted-foreground">
-              建议不低于 60 秒，默认 300 秒（5 分钟）
+              可选择常见预设，或使用自定义秒数。建议不低于 60 秒，默认 300 秒（5 分钟）
             </p>
           </div>
           <div className="flex items-center justify-between">
