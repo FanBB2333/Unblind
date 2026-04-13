@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -223,6 +225,13 @@ func (m *Monitor) initBrowser() error {
 		m.cancelFunc()
 	}
 
+	// The login flow uses the same Chrome profile in headed mode. If that
+	// process exited uncleanly or is still winding down, Singleton* files can
+	// block headless Chrome from starting with the shared profile.
+	killChromeByProfile(m.config.ProfileDir)
+	time.Sleep(300 * time.Millisecond)
+	cleanChromeLockFiles(m.config.ProfileDir)
+
 	// Setup chromedp options - use headless mode for monitoring
 	opts := append(chromedp.DefaultExecAllocatorOptions[:],
 		chromedp.Flag("headless", true),
@@ -417,5 +426,37 @@ func (m *Monitor) updateStatus() {
 
 	if callback != nil {
 		callback(status)
+	}
+}
+
+// killChromeByProfile reads the PID from SingletonLock and kills that process.
+// This prevents headless monitoring from failing when the previous headed
+// login browser has not released the shared profile yet.
+func killChromeByProfile(profileDir string) {
+	lockPath := filepath.Join(profileDir, "SingletonLock")
+	target, err := os.Readlink(lockPath)
+	if err != nil {
+		return
+	}
+	parts := strings.Split(target, "-")
+	if len(parts) == 0 {
+		return
+	}
+	pid, err := strconv.Atoi(parts[len(parts)-1])
+	if err != nil {
+		return
+	}
+	proc, err := os.FindProcess(pid)
+	if err != nil {
+		return
+	}
+	_ = proc.Kill()
+}
+
+// cleanChromeLockFiles removes Singleton* files left by a crashed or recently
+// closed Chrome instance.
+func cleanChromeLockFiles(profileDir string) {
+	for _, name := range []string{"SingletonLock", "SingletonCookie", "SingletonSocket"} {
+		_ = os.Remove(filepath.Join(profileDir, name))
 	}
 }
