@@ -4,14 +4,18 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { Settings, FileText, Download, Save } from "lucide-react";
-import { GetConfig, SaveConfig } from "../../wailsjs/go/main/App";
-import { config } from "../../wailsjs/go/models";
+import { Settings, FileText, Download, Save, Copy, Check } from "lucide-react";
+import { GetConfig, SaveConfig, GenerateDiagnosticReport, ExportDiagnosticReport, GetDiagnosticReportAsString, GetDefaultDiagnosticPath } from "../../wailsjs/go/main/App";
+import { config, diagnostics } from "../../wailsjs/go/models";
 
 export function SettingsPage() {
   const [appConfig, setAppConfig] = useState<config.AppConfig | null>(null);
   const [refreshInterval, setRefreshInterval] = useState(300);
   const [isSaving, setIsSaving] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
+  const [exportPath, setExportPath] = useState("");
+  const [copied, setCopied] = useState(false);
+  const [diagnosticReport, setDiagnosticReport] = useState<diagnostics.DiagnosticReport | null>(null);
   const [logs, setLogs] = useState<string[]>([
     "[启动] 应用已启动",
     "[配置] 配置加载完成",
@@ -31,7 +35,18 @@ export function SettingsPage() {
 
   useEffect(() => {
     fetchConfig();
+    fetchDefaultExportPath();
+    handleRefreshDiagnostics();
   }, []);
+
+  const fetchDefaultExportPath = async () => {
+    try {
+      const path = await GetDefaultDiagnosticPath();
+      setExportPath(path);
+    } catch (err) {
+      console.error("Failed to get default export path:", err);
+    }
+  };
 
   const handleSave = async () => {
     if (!appConfig) return;
@@ -64,6 +79,44 @@ export function SettingsPage() {
       setLogs(prev => [...prev, `[配置] 自动恢复: ${enabled ? "已启用" : "已禁用"}`]);
     } catch (err) {
       console.error("Failed to toggle auto resume:", err);
+    }
+  };
+
+  const handleExportDiagnostics = async () => {
+    setIsExporting(true);
+    try {
+      await ExportDiagnosticReport(exportPath);
+      setLogs(prev => [...prev, `[诊断] 已导出至: ${exportPath}`]);
+      // Refresh report for display
+      const report = await GenerateDiagnosticReport();
+      setDiagnosticReport(report);
+    } catch (err) {
+      console.error("Failed to export diagnostics:", err);
+      setLogs(prev => [...prev, `[错误] 导出诊断信息失败: ${err}`]);
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  const handleCopyDiagnostics = async () => {
+    try {
+      const reportStr = await GetDiagnosticReportAsString();
+      await navigator.clipboard.writeText(reportStr);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+      setLogs(prev => [...prev, `[诊断] 已复制到剪贴板`]);
+    } catch (err) {
+      console.error("Failed to copy diagnostics:", err);
+      setLogs(prev => [...prev, `[错误] 复制诊断信息失败: ${err}`]);
+    }
+  };
+
+  const handleRefreshDiagnostics = async () => {
+    try {
+      const report = await GenerateDiagnosticReport();
+      setDiagnosticReport(report);
+    } catch (err) {
+      console.error("Failed to refresh diagnostics:", err);
     }
   };
 
@@ -154,25 +207,59 @@ export function SettingsPage() {
           <div className="grid grid-cols-2 gap-4 text-sm">
             <div>
               <p className="text-muted-foreground">应用版本</p>
-              <p className="font-medium">1.0.0-dev</p>
+              <p className="font-medium">{diagnosticReport?.version || "1.0.0"}</p>
+            </div>
+            <div>
+              <p className="text-muted-foreground">平台</p>
+              <p className="font-medium">{diagnosticReport?.platform?.os || "unknown"}/{diagnosticReport?.platform?.arch || "unknown"}</p>
             </div>
             <div>
               <p className="text-muted-foreground">数据目录</p>
               <p className="font-medium text-xs">~/.unblind</p>
             </div>
             <div>
-              <p className="text-muted-foreground">浏览器模式</p>
-              <p className="font-medium">{appConfig?.browserMode === "system" ? "系统浏览器" : "下载内核"}</p>
-            </div>
-            <div>
               <p className="text-muted-foreground">刷新间隔</p>
               <p className="font-medium">{appConfig?.refreshIntervalSec || 300}秒</p>
             </div>
           </div>
-          <Button variant="outline" className="flex items-center gap-2" disabled>
-            <Download className="h-4 w-4" />
-            导出诊断信息（未实现）
-          </Button>
+          
+          <div className="space-y-2">
+            <Label htmlFor="export-path">导出路径</Label>
+            <Input
+              id="export-path"
+              value={exportPath}
+              onChange={(e) => setExportPath(e.target.value)}
+              placeholder="选择导出路径"
+              className="text-xs"
+            />
+          </div>
+          
+          <div className="flex gap-2 flex-wrap">
+            <Button 
+              variant="outline" 
+              className="flex items-center gap-2"
+              onClick={handleExportDiagnostics}
+              disabled={isExporting}
+            >
+              <Download className="h-4 w-4" />
+              {isExporting ? "导出中..." : "导出诊断信息"}
+            </Button>
+            <Button 
+              variant="outline" 
+              className="flex items-center gap-2"
+              onClick={handleCopyDiagnostics}
+            >
+              {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+              {copied ? "已复制" : "复制到剪贴板"}
+            </Button>
+            <Button 
+              variant="ghost" 
+              size="sm"
+              onClick={handleRefreshDiagnostics}
+            >
+              刷新
+            </Button>
+          </div>
         </CardContent>
       </Card>
     </div>

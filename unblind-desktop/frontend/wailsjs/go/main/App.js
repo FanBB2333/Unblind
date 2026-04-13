@@ -6,6 +6,10 @@ export function AutoFillCredentials(arg1, arg2) {
   return window['go']['main']['App']['AutoFillCredentials'](arg1, arg2);
 }
 
+export function CancelDownload() {
+  return window['go']['main']['App']['CancelDownload']();
+}
+
 export function CheckLoginStatus() {
   return window['go']['main']['App']['CheckLoginStatus']();
 }
@@ -26,8 +30,28 @@ export function CloseBrowser() {
   return window['go']['main']['App']['CloseBrowser']();
 }
 
+export function DeleteCredentials() {
+  return window['go']['main']['App']['DeleteCredentials']();
+}
+
+export function DeleteKernel() {
+  return window['go']['main']['App']['DeleteKernel']();
+}
+
 export function DetectBrowsers() {
   return window['go']['main']['App']['DetectBrowsers']();
+}
+
+export function DownloadBrowserKernel() {
+  return window['go']['main']['App']['DownloadBrowserKernel']();
+}
+
+export function ExportDiagnosticReport(arg1) {
+  return window['go']['main']['App']['ExportDiagnosticReport'](arg1);
+}
+
+export function GenerateDiagnosticReport() {
+  return window['go']['main']['App']['GenerateDiagnosticReport']();
 }
 
 export function GetAppState() {
@@ -42,8 +66,28 @@ export function GetConfig() {
   return window['go']['main']['App']['GetConfig']();
 }
 
+export function GetCredentials() {
+  return window['go']['main']['App']['GetCredentials']();
+}
+
 export function GetCurrentResults() {
   return window['go']['main']['App']['GetCurrentResults']();
+}
+
+export function GetDefaultDiagnosticPath() {
+  return window['go']['main']['App']['GetDefaultDiagnosticPath']();
+}
+
+export function GetDiagnosticReportAsString() {
+  return window['go']['main']['App']['GetDiagnosticReportAsString']();
+}
+
+export function GetDownloadProgress() {
+  return window['go']['main']['App']['GetDownloadProgress']();
+}
+
+export function GetKernelPath() {
+  return window['go']['main']['App']['GetKernelPath']();
 }
 
 export function GetMonitorStatus() {
@@ -56,6 +100,14 @@ export function GetResultsHistory() {
 
 export function GetSession() {
   return window['go']['main']['App']['GetSession']();
+}
+
+export function HasCredentials() {
+  return window['go']['main']['App']['HasCredentials']();
+}
+
+export function IsKernelDownloaded() {
+  return window['go']['main']['App']['IsKernelDownloaded']();
 }
 
 export function NavigateToTarget() {
@@ -72,6 +124,10 @@ export function ResumeMonitoring() {
 
 export function SaveConfig(arg1) {
   return window['go']['main']['App']['SaveConfig'](arg1);
+}
+
+export function SaveCredentials(arg1, arg2) {
+  return window['go']['main']['App']['SaveCredentials'](arg1, arg2);
 }
 
 export function SendNotification(arg1, arg2) {

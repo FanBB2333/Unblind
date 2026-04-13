@@ -9,6 +9,8 @@ import (
 	"unblind-desktop/internal/auth"
 	"unblind-desktop/internal/browser"
 	"unblind-desktop/internal/config"
+	"unblind-desktop/internal/credentials"
+	"unblind-desktop/internal/diagnostics"
 	"unblind-desktop/internal/monitor"
 	"unblind-desktop/internal/notify"
 	"unblind-desktop/internal/parser"
@@ -17,15 +19,18 @@ import (
 
 // App struct
 type App struct {
-	ctx             context.Context
-	configManager   *config.Manager
-	stateManager    *appstate.Manager
-	browserDetector *browser.Detector
-	authManager     *auth.Manager
-	monitor         *monitor.Monitor
-	notifier        *notify.Notifier
-	storage         *storage.Storage
-	dataDir         string
+	ctx                context.Context
+	configManager      *config.Manager
+	stateManager       *appstate.Manager
+	browserDetector    *browser.Detector
+	browserDownloader  *browser.Downloader
+	authManager        *auth.Manager
+	credentialsManager *credentials.Manager
+	diagnosticsManager *diagnostics.Manager
+	monitor            *monitor.Monitor
+	notifier           *notify.Notifier
+	storage            *storage.Storage
+	dataDir            string
 }
 
 // NewApp creates a new App application struct
@@ -54,8 +59,17 @@ func (a *App) startup(ctx context.Context) {
 	// Initialize browser detector
 	a.browserDetector = browser.NewDetector()
 
+	// Initialize browser downloader
+	a.browserDownloader = browser.NewDownloader(a.dataDir)
+
 	// Initialize auth manager
 	a.authManager = auth.NewManager(a.dataDir)
+
+	// Initialize credentials manager
+	a.credentialsManager = credentials.NewManager()
+
+	// Initialize diagnostics manager
+	a.diagnosticsManager = diagnostics.NewManager(a.dataDir, "1.0.0")
 
 	// Initialize notifier
 	a.notifier = notify.NewNotifier()
@@ -358,4 +372,88 @@ func (a *App) SendNotification(title, body string) error {
 		return nil
 	}
 	return a.notifier.SendBarkNotification(cfg.BarkBaseURL, title, body)
+}
+
+// ==================== Browser Download APIs ====================
+
+// IsKernelDownloaded checks if the browser kernel is already downloaded
+func (a *App) IsKernelDownloaded() bool {
+	return a.browserDownloader.IsKernelDownloaded()
+}
+
+// GetKernelPath returns the path to the downloaded kernel
+func (a *App) GetKernelPath() string {
+	return a.browserDownloader.GetKernelPath()
+}
+
+// DownloadBrowserKernel starts downloading the browser kernel
+func (a *App) DownloadBrowserKernel() error {
+	return a.browserDownloader.Download(a.ctx)
+}
+
+// GetDownloadProgress returns the current download progress
+func (a *App) GetDownloadProgress() browser.DownloadProgress {
+	return a.browserDownloader.GetProgress()
+}
+
+// CancelDownload cancels the ongoing download
+func (a *App) CancelDownload() {
+	a.browserDownloader.Cancel()
+}
+
+// DeleteKernel removes the downloaded kernel
+func (a *App) DeleteKernel() error {
+	return a.browserDownloader.Delete()
+}
+
+// ==================== Credentials APIs ====================
+
+// SaveCredentials securely stores login credentials
+func (a *App) SaveCredentials(username, password string) error {
+	return a.credentialsManager.SaveCredentials(username, password)
+}
+
+// GetCredentials retrieves stored credentials
+func (a *App) GetCredentials() (*credentials.Credentials, error) {
+	return a.credentialsManager.GetCredentials()
+}
+
+// HasCredentials checks if credentials are stored
+func (a *App) HasCredentials() bool {
+	return a.credentialsManager.HasCredentials()
+}
+
+// DeleteCredentials removes stored credentials
+func (a *App) DeleteCredentials() error {
+	return a.credentialsManager.DeleteCredentials()
+}
+
+// ==================== Diagnostics APIs ====================
+
+// GenerateDiagnosticReport generates a diagnostic report
+func (a *App) GenerateDiagnosticReport() *diagnostics.DiagnosticReport {
+	cfg := a.configManager.Get()
+	state := a.stateManager.Get()
+	history := []storage.HistoryItem{}
+	if a.storage != nil {
+		history = a.storage.GetHistory()
+	}
+	return a.diagnosticsManager.GenerateReport(cfg, state, history)
+}
+
+// ExportDiagnosticReport exports the diagnostic report to a file
+func (a *App) ExportDiagnosticReport(outputPath string) error {
+	report := a.GenerateDiagnosticReport()
+	return a.diagnosticsManager.ExportReport(report, outputPath)
+}
+
+// GetDiagnosticReportAsString returns the diagnostic report as a JSON string
+func (a *App) GetDiagnosticReportAsString() (string, error) {
+	report := a.GenerateDiagnosticReport()
+	return a.diagnosticsManager.ExportToString(report)
+}
+
+// GetDefaultDiagnosticPath returns the default export path for diagnostics
+func (a *App) GetDefaultDiagnosticPath() string {
+	return a.diagnosticsManager.GetDefaultExportPath()
 }
