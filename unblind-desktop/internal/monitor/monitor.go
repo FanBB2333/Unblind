@@ -34,8 +34,8 @@ const (
 // MonitorStatus represents the current status of the monitor
 type MonitorStatus struct {
 	State         MonitorState `json:"state"`
-	LastCheckTime time.Time    `json:"lastCheckTime"`
-	NextCheckTime time.Time    `json:"nextCheckTime"`
+	LastCheckTime string       `json:"lastCheckTime"`
+	NextCheckTime string       `json:"nextCheckTime"`
 	LastError     string       `json:"lastError"`
 	CheckCount    int          `json:"checkCount"`
 }
@@ -174,7 +174,7 @@ func (m *Monitor) Stop() {
 
 	m.mu.Lock()
 	m.status.State = StateStopped
-	m.status.NextCheckTime = time.Time{}
+	m.status.NextCheckTime = ""
 	m.mu.Unlock()
 	m.updateStatus()
 }
@@ -336,9 +336,9 @@ func (m *Monitor) performCheck() (*parser.ParsedResults, error) {
 
 	// Update status
 	m.mu.Lock()
-	m.status.LastCheckTime = time.Now()
+	m.status.LastCheckTime = time.Now().Format(time.RFC3339)
 	m.status.CheckCount++
-	m.status.NextCheckTime = time.Now().Add(time.Duration(m.config.RefreshIntervalSec) * time.Second)
+	m.status.NextCheckTime = time.Now().Add(time.Duration(m.config.RefreshIntervalSec) * time.Second).Format(time.RFC3339)
 	m.status.LastError = ""
 	m.mu.Unlock()
 

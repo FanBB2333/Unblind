@@ -26,7 +26,7 @@ const (
 // Session represents a saved login session
 type Session struct {
 	Cookies       []*network.Cookie `json:"cookies"`
-	LastLoginTime time.Time         `json:"lastLoginTime"`
+	LastLoginTime string            `json:"lastLoginTime"`
 	BrowserMode   string            `json:"browserMode"`
 	ProfileDir    string            `json:"profileDir"`
 	IsValid       bool              `json:"isValid"`
@@ -309,7 +309,7 @@ func (m *Manager) saveCookies() error {
 	}
 
 	m.session.Cookies = cookies
-	m.session.LastLoginTime = time.Now()
+	m.session.LastLoginTime = time.Now().Format(time.RFC3339)
 	m.session.IsValid = true
 
 	return m.saveSession()

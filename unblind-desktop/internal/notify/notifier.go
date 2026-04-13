@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 )
 
@@ -27,6 +28,9 @@ func (n *Notifier) SendBarkNotification(baseURL, title, body string) error {
 	if baseURL == "" {
 		return fmt.Errorf("bark base URL is empty")
 	}
+
+	// Trim trailing slashes to avoid double-slash in constructed URL
+	baseURL = strings.TrimRight(baseURL, "/")
 
 	// URL encode title and body
 	encodedTitle := url.PathEscape(title)

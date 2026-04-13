@@ -2,7 +2,6 @@ package appstate
 
 import (
 	"sync"
-	"time"
 )
 
 // State represents the application state
@@ -19,12 +18,12 @@ const (
 
 // AppState represents the full application state snapshot
 type AppState struct {
-	State           State     `json:"state"`
-	LastCheckTime   time.Time `json:"lastCheckTime"`
-	NextCheckTime   time.Time `json:"nextCheckTime"`
-	LastError       string    `json:"lastError"`
-	BrowserDetected bool      `json:"browserDetected"`
-	SessionValid    bool      `json:"sessionValid"`
+	State           State  `json:"state"`
+	LastCheckTime   string `json:"lastCheckTime"`
+	NextCheckTime   string `json:"nextCheckTime"`
+	LastError       string `json:"lastError"`
+	BrowserDetected bool   `json:"browserDetected"`
+	SessionValid    bool   `json:"sessionValid"`
 }
 
 // Manager manages the application state
@@ -60,14 +59,14 @@ func (m *Manager) SetState(state State) {
 }
 
 // SetLastCheckTime updates the last check time
-func (m *Manager) SetLastCheckTime(t time.Time) {
+func (m *Manager) SetLastCheckTime(t string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.state.LastCheckTime = t
 }
 
 // SetNextCheckTime updates the next check time
-func (m *Manager) SetNextCheckTime(t time.Time) {
+func (m *Manager) SetNextCheckTime(t string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.state.NextCheckTime = t

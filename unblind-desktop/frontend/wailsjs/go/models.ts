@@ -2,10 +2,8 @@ export namespace appstate {
 	
 	export class AppState {
 	    state: string;
-	    // Go type: time
-	    lastCheckTime: any;
-	    // Go type: time
-	    nextCheckTime: any;
+	    lastCheckTime: string;
+	    nextCheckTime: string;
 	    lastError: string;
 	    browserDetected: boolean;
 	    sessionValid: boolean;
@@ -17,30 +15,12 @@ export namespace appstate {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.state = source["state"];
-	        this.lastCheckTime = this.convertValues(source["lastCheckTime"], null);
-	        this.nextCheckTime = this.convertValues(source["nextCheckTime"], null);
+	        this.lastCheckTime = source["lastCheckTime"];
+	        this.nextCheckTime = source["nextCheckTime"];
 	        this.lastError = source["lastError"];
 	        this.browserDetected = source["browserDetected"];
 	        this.sessionValid = source["sessionValid"];
 	    }
-	
-		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) {
-		        return a;
-		    }
-		    if (a.slice && a.map) {
-		        return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    } else if ("object" === typeof a) {
-		        if (asMap) {
-		            for (const key of Object.keys(a)) {
-		                a[key] = new classs(a[key]);
-		            }
-		            return a;
-		        }
-		        return new classs(a);
-		    }
-		    return a;
-		}
 	}
 
 }
@@ -49,8 +29,7 @@ export namespace auth {
 	
 	export class Session {
 	    cookies: network.Cookie[];
-	    // Go type: time
-	    lastLoginTime: any;
+	    lastLoginTime: string;
 	    browserMode: string;
 	    profileDir: string;
 	    isValid: boolean;
@@ -62,7 +41,7 @@ export namespace auth {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.cookies = this.convertValues(source["cookies"], network.Cookie);
-	        this.lastLoginTime = this.convertValues(source["lastLoginTime"], null);
+	        this.lastLoginTime = source["lastLoginTime"];
 	        this.browserMode = source["browserMode"];
 	        this.profileDir = source["profileDir"];
 	        this.isValid = source["isValid"];
@@ -309,10 +288,8 @@ export namespace monitor {
 	
 	export class MonitorStatus {
 	    state: string;
-	    // Go type: time
-	    lastCheckTime: any;
-	    // Go type: time
-	    nextCheckTime: any;
+	    lastCheckTime: string;
+	    nextCheckTime: string;
 	    lastError: string;
 	    checkCount: number;
 	
@@ -323,29 +300,11 @@ export namespace monitor {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.state = source["state"];
-	        this.lastCheckTime = this.convertValues(source["lastCheckTime"], null);
-	        this.nextCheckTime = this.convertValues(source["nextCheckTime"], null);
+	        this.lastCheckTime = source["lastCheckTime"];
+	        this.nextCheckTime = source["nextCheckTime"];
 	        this.lastError = source["lastError"];
 	        this.checkCount = source["checkCount"];
 	    }
-	
-		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) {
-		        return a;
-		    }
-		    if (a.slice && a.map) {
-		        return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    } else if ("object" === typeof a) {
-		        if (asMap) {
-		            for (const key of Object.keys(a)) {
-		                a[key] = new classs(a[key]);
-		            }
-		            return a;
-		        }
-		        return new classs(a);
-		    }
-		    return a;
-		}
 	}
 
 }
@@ -452,8 +411,7 @@ export namespace parser {
 	export class ParsedResults {
 	    reviews: ReviewResult[];
 	    finalResult: string;
-	    // Go type: time
-	    extractTime: any;
+	    extractTime: string;
 	    hash: string;
 	
 	    static createFrom(source: any = {}) {
@@ -464,7 +422,7 @@ export namespace parser {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.reviews = this.convertValues(source["reviews"], ReviewResult);
 	        this.finalResult = source["finalResult"];
-	        this.extractTime = this.convertValues(source["extractTime"], null);
+	        this.extractTime = source["extractTime"];
 	        this.hash = source["hash"];
 	    }
 	
@@ -492,8 +450,7 @@ export namespace parser {
 export namespace storage {
 	
 	export class HistoryItem {
-	    // Go type: time
-	    timestamp: any;
+	    timestamp: string;
 	    hash: string;
 	    results?: parser.ParsedResults;
 	    description: string;
@@ -504,7 +461,7 @@ export namespace storage {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.timestamp = this.convertValues(source["timestamp"], null);
+	        this.timestamp = source["timestamp"];
 	        this.hash = source["hash"];
 	        this.results = this.convertValues(source["results"], parser.ParsedResults);
 	        this.description = source["description"];

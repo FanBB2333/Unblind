@@ -18,7 +18,7 @@ const (
 
 // HistoryItem represents a single history entry
 type HistoryItem struct {
-	Timestamp   time.Time             `json:"timestamp"`
+	Timestamp   string                `json:"timestamp"`
 	Hash        string                `json:"hash"`
 	Results     *parser.ParsedResults `json:"results"`
 	Description string                `json:"description"`
@@ -95,7 +95,7 @@ func (s *Storage) SaveResults(results *parser.ParsedResults, description string)
 	// Add to history if changed
 	if changed && len(results.Reviews) > 0 {
 		historyItem := HistoryItem{
-			Timestamp:   time.Now(),
+			Timestamp:   time.Now().Format(time.RFC3339),
 			Hash:        results.Hash,
 			Results:     results,
 			Description: description,

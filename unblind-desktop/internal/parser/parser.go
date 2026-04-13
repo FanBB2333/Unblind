@@ -25,7 +25,7 @@ type ReviewResult struct {
 type ParsedResults struct {
 	Reviews     []ReviewResult `json:"reviews"`
 	FinalResult string         `json:"finalResult"`
-	ExtractTime time.Time      `json:"extractTime"`
+	ExtractTime string         `json:"extractTime"`
 	Hash        string         `json:"hash"`
 }
 
@@ -42,7 +42,7 @@ func NewParser() *Parser {
 func (p *Parser) ExtractResults(ctx context.Context) (*ParsedResults, error) {
 	results := &ParsedResults{
 		Reviews:     []ReviewResult{},
-		ExtractTime: time.Now(),
+		ExtractTime: time.Now().Format(time.RFC3339),
 	}
 
 	// JavaScript to extract table data
