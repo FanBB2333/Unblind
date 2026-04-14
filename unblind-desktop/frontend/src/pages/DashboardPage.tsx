@@ -107,7 +107,9 @@ export function DashboardPage() {
           setStatusMessage("登录成功，正在关闭浏览器...");
 
           try {
-            CloseBrowser();
+            await CloseBrowser();
+            // Wait for Chrome to fully release the profile lock
+            await new Promise((resolve) => setTimeout(resolve, 500));
             setStatusMessage("正在启动无头监控...");
             await StartMonitoring();
             setStatusMessage("");
