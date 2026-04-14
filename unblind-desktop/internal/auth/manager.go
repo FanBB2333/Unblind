@@ -24,6 +24,18 @@ const (
 	SessionFile = "session.json"
 )
 
+func loginEntryURL() string {
+	// Start from the protected target page so CAS carries the service parameter
+	// and redirects back to the result page after a successful login.
+	return TargetURL
+}
+
+func isAuthenticatedTargetURL(currentURL string) bool {
+	return strings.Contains(currentURL, "yjsy.zju.edu.cn") &&
+		strings.Contains(currentURL, "xw_sqzt") &&
+		!strings.Contains(currentURL, "zjuam.zju.edu.cn")
+}
+
 // Session represents a saved login session
 type Session struct {
 	Cookies       []*network.Cookie `json:"cookies"`
@@ -113,7 +125,7 @@ func (m *Manager) StartLoginFlow(browserPath string) error {
 	// Navigate to login page in background
 	go func() {
 		err := chromedp.Run(ctx,
-			chromedp.Navigate(LoginURL),
+			chromedp.Navigate(loginEntryURL()),
 		)
 		if err != nil {
 			fmt.Printf("Failed to navigate: %v\n", err)
@@ -143,7 +155,7 @@ func (m *Manager) CheckLoginStatus() (bool, error) {
 	}
 
 	// Check if we're on the target page (not the login page)
-	if strings.Contains(currentURL, "yjsy.zju.edu.cn") && !strings.Contains(currentURL, "zjuam.zju.edu.cn") {
+	if isAuthenticatedTargetURL(currentURL) {
 		// Extract and save cookies
 		if err := m.saveCookies(); err != nil {
 			return false, err
@@ -227,9 +239,7 @@ func (m *Manager) ValidateSession(browserPath string) (bool, error) {
 	}
 
 	// Check if we're on the target page (not redirected to login)
-	if strings.Contains(currentURL, "yjsy.zju.edu.cn") &&
-		strings.Contains(currentURL, "xw_sqzt") &&
-		!strings.Contains(currentURL, "zjuam.zju.edu.cn") {
+	if isAuthenticatedTargetURL(currentURL) {
 		m.mu.Lock()
 		m.session.IsValid = true
 		m.mu.Unlock()
