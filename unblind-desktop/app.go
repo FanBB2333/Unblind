@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 
 	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
 
@@ -108,8 +109,15 @@ func (a *App) shutdown(ctx context.Context) {
 	}
 }
 
-// getDataDir returns the application data directory
+// getDataDir returns the application data directory.
+// When running inside a macOS .app bundle, data is stored in
+// Contents/data/ so that deleting the .app removes all app data.
+// Falls back to ~/.unblind/ in development or when the bundle is not writable.
 func (a *App) getDataDir() string {
+	if dir := bundleDataDir(); dir != "" {
+		return dir
+	}
+
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		return os.TempDir()
@@ -117,6 +125,51 @@ func (a *App) getDataDir() string {
 
 	dataDir := filepath.Join(homeDir, ".unblind")
 	os.MkdirAll(dataDir, 0755)
+	return dataDir
+}
+
+// bundleDataDir returns <app>.app/Contents/data/ when the executable is
+// running inside a macOS application bundle and that directory is writable.
+// Returns "" otherwise (development mode, Linux, Windows, or read-only bundle).
+func bundleDataDir() string {
+	execPath, err := os.Executable()
+	if err != nil {
+		return ""
+	}
+	// Resolve symlinks (Wails dev mode may wrap the binary)
+	execPath, err = filepath.EvalSymlinks(execPath)
+	if err != nil {
+		return ""
+	}
+
+	// Expected layout: .../Foo.app/Contents/MacOS/<binary>
+	macosDir := filepath.Dir(execPath)
+	if filepath.Base(macosDir) != "MacOS" {
+		return "" // not inside a .app bundle
+	}
+	contentsDir := filepath.Dir(macosDir)
+	if filepath.Base(contentsDir) != "Contents" {
+		return ""
+	}
+	appDir := filepath.Dir(contentsDir)
+	if !strings.HasSuffix(appDir, ".app") {
+		return ""
+	}
+
+	dataDir := filepath.Join(contentsDir, "data")
+	if err := os.MkdirAll(dataDir, 0755); err != nil {
+		return "" // bundle not writable (e.g. system-wide install without sudo)
+	}
+
+	// Quick write-access check
+	probe := filepath.Join(dataDir, ".write-probe")
+	if f, err := os.Create(probe); err != nil {
+		return ""
+	} else {
+		f.Close()
+		os.Remove(probe)
+	}
+
 	return dataDir
 }
 
