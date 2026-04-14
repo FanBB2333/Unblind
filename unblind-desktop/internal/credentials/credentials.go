@@ -1,17 +1,20 @@
 package credentials
 
 import (
+	"crypto/aes"
+	"crypto/cipher"
+	"crypto/rand"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
-
-	"github.com/zalando/go-keyring"
+	"io"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
 )
 
-const (
-	serviceName = "unblind-desktop"
-	usernameKey = "zju-username"
-	passwordKey = "zju-password"
-)
+const credentialsFile = "credentials.enc"
 
 // Credentials represents stored login credentials
 type Credentials struct {
@@ -19,75 +22,80 @@ type Credentials struct {
 	Password string `json:"password"`
 }
 
-// Manager handles secure credential storage
-type Manager struct{}
-
-// NewManager creates a new credentials manager
-func NewManager() *Manager {
-	return &Manager{}
+// Manager handles credential storage in the app data directory.
+// Credentials are encrypted with AES-256-GCM using a key derived from
+// the machine hardware UUID, so the file is only usable on the same machine.
+type Manager struct {
+	dataDir string
 }
 
-// SaveCredentials securely stores username and password
+// NewManager creates a new credentials manager that stores data under dataDir.
+func NewManager(dataDir string) *Manager {
+	return &Manager{dataDir: dataDir}
+}
+
+// SaveCredentials encrypts and stores username and password.
 func (m *Manager) SaveCredentials(username, password string) error {
-	// Store username
-	if err := keyring.Set(serviceName, usernameKey, username); err != nil {
-		return fmt.Errorf("failed to save username: %w", err)
+	data, err := json.Marshal(&Credentials{Username: username, Password: password})
+	if err != nil {
+		return fmt.Errorf("failed to marshal credentials: %w", err)
 	}
 
-	// Store password
-	if err := keyring.Set(serviceName, passwordKey, password); err != nil {
-		return fmt.Errorf("failed to save password: %w", err)
+	key := m.deriveKey()
+	encrypted, err := encryptAESGCM(key, data)
+	if err != nil {
+		return fmt.Errorf("failed to encrypt credentials: %w", err)
 	}
 
+	path := filepath.Join(m.dataDir, credentialsFile)
+	if err := os.WriteFile(path, encrypted, 0600); err != nil {
+		return fmt.Errorf("failed to write credentials file: %w", err)
+	}
 	return nil
 }
 
-// GetCredentials retrieves stored credentials
+// GetCredentials decrypts and returns stored credentials.
+// Returns nil, nil if no credentials are stored yet.
 func (m *Manager) GetCredentials() (*Credentials, error) {
-	username, err := keyring.Get(serviceName, usernameKey)
+	path := filepath.Join(m.dataDir, credentialsFile)
+	encrypted, err := os.ReadFile(path)
 	if err != nil {
-		if err == keyring.ErrNotFound {
-			return nil, nil // No credentials stored
+		if os.IsNotExist(err) {
+			return nil, nil
 		}
-		return nil, fmt.Errorf("failed to get username: %w", err)
+		return nil, fmt.Errorf("failed to read credentials file: %w", err)
 	}
 
-	password, err := keyring.Get(serviceName, passwordKey)
+	key := m.deriveKey()
+	data, err := decryptAESGCM(key, encrypted)
 	if err != nil {
-		if err == keyring.ErrNotFound {
-			return &Credentials{Username: username}, nil
-		}
-		return nil, fmt.Errorf("failed to get password: %w", err)
+		return nil, fmt.Errorf("failed to decrypt credentials: %w", err)
 	}
 
-	return &Credentials{
-		Username: username,
-		Password: password,
-	}, nil
+	var creds Credentials
+	if err := json.Unmarshal(data, &creds); err != nil {
+		return nil, fmt.Errorf("failed to parse credentials: %w", err)
+	}
+	return &creds, nil
 }
 
-// HasCredentials checks if credentials are stored
+// HasCredentials reports whether credentials have been saved.
 func (m *Manager) HasCredentials() bool {
-	_, err := keyring.Get(serviceName, usernameKey)
+	path := filepath.Join(m.dataDir, credentialsFile)
+	_, err := os.Stat(path)
 	return err == nil
 }
 
-// DeleteCredentials removes stored credentials
+// DeleteCredentials removes the stored credentials file.
 func (m *Manager) DeleteCredentials() error {
-	// Delete username (ignore not found errors)
-	if err := keyring.Delete(serviceName, usernameKey); err != nil && err != keyring.ErrNotFound {
-		return fmt.Errorf("failed to delete username: %w", err)
+	path := filepath.Join(m.dataDir, credentialsFile)
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("failed to delete credentials file: %w", err)
 	}
-
-	// Delete password (ignore not found errors)
-	if err := keyring.Delete(serviceName, passwordKey); err != nil && err != keyring.ErrNotFound {
-		return fmt.Errorf("failed to delete password: %w", err)
-	}
-
 	return nil
 }
 
-// ToJSON returns credentials as masked JSON for display
+// ToJSON returns credentials as masked JSON for display.
 func (c *Credentials) ToJSON() string {
 	masked := struct {
 		Username string `json:"username"`
@@ -100,10 +108,87 @@ func (c *Credentials) ToJSON() string {
 	return string(data)
 }
 
-// maskPassword masks the password for display
 func maskPassword(password string) string {
 	if len(password) <= 2 {
 		return "**"
 	}
 	return password[:1] + "****" + password[len(password)-1:]
+}
+
+// deriveKey returns a 32-byte AES key derived from the machine hardware UUID.
+// Falls back to hostname+username if the UUID cannot be read.
+func (m *Manager) deriveKey() []byte {
+	seed := machineID()
+	// Mix in an app-specific salt so the key is unique to this application.
+	h := sha256.Sum256([]byte("unblind-desktop:" + seed))
+	return h[:]
+}
+
+// machineID returns a machine-specific identifier string.
+// On macOS it reads the IOPlatformUUID via ioreg.
+func machineID() string {
+	// macOS: ioreg -rd1 -c IOPlatformExpertDevice
+	out, err := exec.Command(
+		"ioreg", "-rd1", "-c", "IOPlatformExpertDevice",
+	).Output()
+	if err == nil {
+		for _, line := range strings.Split(string(out), "\n") {
+			if strings.Contains(line, "IOPlatformUUID") {
+				parts := strings.SplitN(line, "=", 2)
+				if len(parts) == 2 {
+					uuid := strings.TrimSpace(parts[1])
+					uuid = strings.Trim(uuid, `" `)
+					if uuid != "" {
+						return uuid
+					}
+				}
+			}
+		}
+	}
+
+	// Fallback: hostname + current user
+	hostname, _ := os.Hostname()
+	home, _ := os.UserHomeDir()
+	return hostname + ":" + home
+}
+
+// encryptAESGCM encrypts plaintext with AES-256-GCM.
+// Output layout: [12-byte nonce][ciphertext+tag].
+func encryptAESGCM(key, plaintext []byte) ([]byte, error) {
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return nil, err
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return nil, err
+	}
+
+	nonce := make([]byte, gcm.NonceSize())
+	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
+		return nil, err
+	}
+
+	ciphertext := gcm.Seal(nonce, nonce, plaintext, nil)
+	return ciphertext, nil
+}
+
+// decryptAESGCM decrypts data produced by encryptAESGCM.
+func decryptAESGCM(key, data []byte) ([]byte, error) {
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return nil, err
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return nil, err
+	}
+
+	nonceSize := gcm.NonceSize()
+	if len(data) < nonceSize {
+		return nil, fmt.Errorf("ciphertext too short")
+	}
+
+	nonce, ciphertext := data[:nonceSize], data[nonceSize:]
+	return gcm.Open(nil, nonce, ciphertext, nil)
 }

@@ -6,13 +6,11 @@ require (
 	github.com/chromedp/cdproto v0.0.0-20260321001828-e3e3800016bc
 	github.com/chromedp/chromedp v0.15.1
 	github.com/wailsapp/wails/v2 v2.11.0
-	github.com/zalando/go-keyring v0.2.8
 )
 
 require (
 	github.com/bep/debounce v1.2.1 // indirect
 	github.com/chromedp/sysutil v1.1.0 // indirect
-	github.com/danieljoos/wincred v1.2.3 // indirect
 	github.com/go-json-experiment/json v0.0.0-20260214004413-d219187c3433 // indirect
 	github.com/go-ole/go-ole v1.3.0 // indirect
 	github.com/gobwas/httphead v0.1.0 // indirect
@@ -34,6 +32,7 @@ require (
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/samber/lo v1.49.1 // indirect
+	github.com/stretchr/testify v1.11.1 // indirect
 	github.com/tkrajina/go-reflector v0.5.8 // indirect
 	github.com/valyala/bytebufferpool v1.0.0 // indirect
 	github.com/valyala/fasttemplate v1.2.2 // indirect

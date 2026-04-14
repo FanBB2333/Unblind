@@ -68,7 +68,7 @@ func (a *App) startup(ctx context.Context) {
 	a.authManager = auth.NewManager(a.dataDir)
 
 	// Initialize credentials manager
-	a.credentialsManager = credentials.NewManager()
+	a.credentialsManager = credentials.NewManager(a.dataDir)
 
 	// Initialize diagnostics manager
 	a.diagnosticsManager = diagnostics.NewManager(a.dataDir, "1.0.0")
