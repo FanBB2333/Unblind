@@ -101,29 +101,18 @@ export function DashboardPage() {
       try {
         const success = await CheckLoginStatus();
         if (success) {
-          setIsCheckingLogin(false);
-          // Auto transition: close browser → start monitoring
-          setIsTransitioning(true);
-          setStatusMessage("登录成功，正在关闭浏览器...");
-
-          try {
-            await CloseBrowser();
-            // Wait for Chrome to fully release the profile lock
-            await new Promise((resolve) => setTimeout(resolve, 500));
-            setStatusMessage("正在启动无头监控...");
-            await StartMonitoring();
-            setStatusMessage("");
-            await fetchState();
-          } catch (err) {
-            console.error("Failed to start monitoring after login:", err);
-            setStatusMessage("自动启动监控失败，请手动点击开始监控");
-            await fetchState();
-          } finally {
-            setIsTransitioning(false);
-          }
+          // DO NOT auto-close the browser.
+          // Keep polling to continually save any new cookies the site issues.
+          setStatusMessage("✅ 登录成功！系统正在后台同步会话。您可以手动关闭浏览器窗口。");
+          await fetchState();
         }
       } catch (err) {
-        console.error("Failed to check login:", err);
+        // If an error is thrown, it typically means the browser window was closed
+        // manually by the user or the context was canceled.
+        console.log("Browser window closed or context ended:", err);
+        setIsCheckingLogin(false);
+        setStatusMessage("");
+        await fetchState();
       }
     }, 2000);
 

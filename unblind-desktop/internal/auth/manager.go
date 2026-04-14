@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -25,9 +26,10 @@ const (
 )
 
 func loginEntryURL() string {
-	// Start from the protected target page so CAS carries the service parameter
-	// and redirects back to the result page after a successful login.
-	return TargetURL
+	// Directly navigate to the CAS login page with the target URL as the service parameter.
+	// This prevents a race condition where CheckLoginStatus sees TargetURL
+	// before the initial HTTP 302 redirect to CAS has occurred.
+	return fmt.Sprintf("%s?service=%s", LoginURL, url.QueryEscape(TargetURL))
 }
 
 func isAuthenticatedTargetURL(currentURL string) bool {
@@ -156,7 +158,11 @@ func (m *Manager) CheckLoginStatus() (bool, error) {
 
 	// Check if we're on the target page (not the login page)
 	if isAuthenticatedTargetURL(currentURL) {
-		// Extract and save cookies
+		// We have reached the target URL.
+		// Since the frontend now polls continuously without auto-closing,
+		// we continuously save the cookies on every poll.
+		// This guarantees we eventually capture the fully established session
+		// including any delayed cookies from the business server.
 		if err := m.saveCookies(); err != nil {
 			return false, err
 		}

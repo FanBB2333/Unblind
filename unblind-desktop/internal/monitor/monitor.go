@@ -2,6 +2,7 @@ package monitor
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,6 +11,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/chromedp/cdproto/cdp"
+	"github.com/chromedp/cdproto/network"
 	"github.com/chromedp/chromedp"
 
 	"unblind-desktop/internal/notify"
@@ -48,6 +51,7 @@ type Config struct {
 	BarkBaseURL        string
 	BrowserPath        string
 	ProfileDir         string
+	SessionFile        string // Path to session.json containing saved cookies
 }
 
 // Monitor handles periodic checking of review results
@@ -320,6 +324,14 @@ func (m *Monitor) performCheck() (*parser.ParsedResults, error) {
 		return nil, fmt.Errorf("browser context not available")
 	}
 
+	// Inject saved cookies before navigating to ensure we have a valid session.
+	// This is necessary because the headed login browser's cookies may not have
+	// been flushed to the Chrome profile before we started the headless browser.
+	if err := m.injectCookies(ctx); err != nil {
+		fmt.Printf("Warning: failed to inject cookies: %v\n", err)
+		// Continue anyway - the profile might have the cookies
+	}
+
 	// Navigate to target page
 	err := chromedp.Run(ctx,
 		chromedp.Navigate(TargetURL),
@@ -456,4 +468,63 @@ func cleanChromeLockFiles(profileDir string) {
 	for _, name := range []string{"SingletonLock", "SingletonCookie", "SingletonSocket"} {
 		_ = os.Remove(filepath.Join(profileDir, name))
 	}
+}
+
+// savedSession represents the structure of session.json
+type savedSession struct {
+	Cookies []*network.Cookie `json:"cookies"`
+}
+
+// injectCookies loads cookies from the session file and injects them into the browser.
+// This ensures the headless browser has the same session as the headed login browser.
+func (m *Monitor) injectCookies(ctx context.Context) error {
+	if m.config.SessionFile == "" {
+		return nil // No session file configured
+	}
+
+	data, err := os.ReadFile(m.config.SessionFile)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil // No saved session, will need to re-login
+		}
+		return fmt.Errorf("failed to read session file: %w", err)
+	}
+
+	var session savedSession
+	if err := json.Unmarshal(data, &session); err != nil {
+		return fmt.Errorf("failed to parse session file: %w", err)
+	}
+
+	if len(session.Cookies) == 0 {
+		return nil // No cookies to inject
+	}
+
+	// Convert to SetCookiesParams
+	var params []*network.CookieParam
+	for _, c := range session.Cookies {
+		param := &network.CookieParam{
+			Name:     c.Name,
+			Value:    c.Value,
+			Domain:   c.Domain,
+			Path:     c.Path,
+			Secure:   c.Secure,
+			HTTPOnly: c.HTTPOnly,
+			SameSite: c.SameSite,
+		}
+		// Only set expiry if cookie is not session-based (expires > 0)
+		// c.Expires is Unix timestamp in seconds as float64
+		if c.Expires > 0 {
+			expiresTime := time.Unix(int64(c.Expires), 0)
+			expires := cdp.TimeSinceEpoch(expiresTime)
+			param.Expires = &expires
+		}
+		params = append(params, param)
+	}
+
+	// Inject cookies into the browser
+	return chromedp.Run(ctx,
+		chromedp.ActionFunc(func(ctx context.Context) error {
+			return network.SetCookies(params).Do(ctx)
+		}),
+	)
 }

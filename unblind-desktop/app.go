@@ -317,6 +317,7 @@ func (a *App) StartMonitoring() error {
 		BarkBaseURL:        cfg.BarkBaseURL,
 		BrowserPath:        browserPath,
 		ProfileDir:         filepath.Join(a.dataDir, "chrome-profile"),
+		SessionFile:        filepath.Join(a.dataDir, "session.json"),
 	}
 
 	// Create monitor if not exists
