@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
@@ -112,10 +113,21 @@ func (a *App) shutdown(ctx context.Context) {
 // getDataDir returns the application data directory.
 // When running inside a macOS .app bundle, data is stored in
 // Contents/data/ so that deleting the .app removes all app data.
-// Falls back to ~/.unblind/ in development or when the bundle is not writable.
+// On Windows, uses %APPDATA%\unblind\.
+// Falls back to ~/.unblind/ otherwise.
 func (a *App) getDataDir() string {
 	if dir := bundleDataDir(); dir != "" {
 		return dir
+	}
+
+	// Windows: use %APPDATA%\unblind\
+	if runtime.GOOS == "windows" {
+		appData := os.Getenv("APPDATA")
+		if appData != "" {
+			dataDir := filepath.Join(appData, "unblind")
+			os.MkdirAll(dataDir, 0755)
+			return dataDir
+		}
 	}
 
 	homeDir, err := os.UserHomeDir()

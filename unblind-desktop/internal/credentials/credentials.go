@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 )
 
@@ -115,8 +116,8 @@ func maskPassword(password string) string {
 	return password[:1] + "****" + password[len(password)-1:]
 }
 
-// deriveKey returns a 32-byte AES key derived from the machine hardware UUID.
-// Falls back to hostname+username if the UUID cannot be read.
+// deriveKey returns a 32-byte AES key derived from a machine-specific identifier.
+// Falls back to hostname+home directory if the platform identifier cannot be read.
 func (m *Manager) deriveKey() []byte {
 	seed := machineID()
 	// Mix in an app-specific salt so the key is unique to this application.
@@ -125,31 +126,113 @@ func (m *Manager) deriveKey() []byte {
 }
 
 // machineID returns a machine-specific identifier string.
-// On macOS it reads the IOPlatformUUID via ioreg.
 func machineID() string {
-	// macOS: ioreg -rd1 -c IOPlatformExpertDevice
-	out, err := exec.Command(
-		"ioreg", "-rd1", "-c", "IOPlatformExpertDevice",
-	).Output()
-	if err == nil {
-		for _, line := range strings.Split(string(out), "\n") {
-			if strings.Contains(line, "IOPlatformUUID") {
-				parts := strings.SplitN(line, "=", 2)
-				if len(parts) == 2 {
-					uuid := strings.TrimSpace(parts[1])
-					uuid = strings.Trim(uuid, `" `)
-					if uuid != "" {
-						return uuid
-					}
-				}
-			}
+	switch runtime.GOOS {
+	case "darwin":
+		if id := macPlatformUUID(); id != "" {
+			return id
+		}
+	case "windows":
+		if id := windowsMachineID(); id != "" {
+			return id
 		}
 	}
 
-	// Fallback: hostname + current user
+	// Fallback: hostname + home directory
 	hostname, _ := os.Hostname()
 	home, _ := os.UserHomeDir()
 	return hostname + ":" + home
+}
+
+func macPlatformUUID() string {
+	out, err := exec.Command("ioreg", "-rd1", "-c", "IOPlatformExpertDevice").Output()
+	if err != nil {
+		return ""
+	}
+
+	for _, line := range strings.Split(string(out), "\n") {
+		if !strings.Contains(line, "IOPlatformUUID") {
+			continue
+		}
+		parts := strings.SplitN(line, "=", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		uuid := strings.TrimSpace(parts[1])
+		uuid = strings.Trim(uuid, `" `)
+		if uuid != "" {
+			return uuid
+		}
+	}
+
+	return ""
+}
+
+func windowsMachineID() string {
+	if id := commandMachineID(
+		exec.Command("reg", "query", `HKLM\SOFTWARE\Microsoft\Cryptography`, "/v", "MachineGuid"),
+		parseWindowsRegistryMachineID,
+	); id != "" {
+		return id
+	}
+
+	if id := commandMachineID(
+		exec.Command("powershell", "-NoProfile", "-Command", "(Get-ItemProperty -Path 'HKLM:\\SOFTWARE\\Microsoft\\Cryptography').MachineGuid"),
+		parseFirstNonEmptyLine,
+	); id != "" {
+		return id
+	}
+
+	if id := commandMachineID(
+		exec.Command("wmic", "csproduct", "get", "uuid"),
+		parseWindowsWMIUUID,
+	); id != "" {
+		return id
+	}
+
+	return ""
+}
+
+func commandMachineID(cmd *exec.Cmd, parse func(string) string) string {
+	out, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	return parse(string(out))
+}
+
+func parseWindowsRegistryMachineID(output string) string {
+	for _, line := range strings.Split(output, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || !strings.Contains(line, "MachineGuid") {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) >= 3 {
+			return fields[len(fields)-1]
+		}
+	}
+	return ""
+}
+
+func parseWindowsWMIUUID(output string) string {
+	for _, line := range strings.Split(strings.TrimSpace(output), "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" && !strings.EqualFold(line, "UUID") {
+			return line
+		}
+	}
+	return ""
+}
+
+func parseFirstNonEmptyLine(output string) string {
+	for _, line := range strings.Split(output, "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			return line
+		}
+	}
+	return ""
 }
 
 // encryptAESGCM encrypts plaintext with AES-256-GCM.

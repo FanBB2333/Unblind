@@ -46,11 +46,66 @@ wails dev
 
 ## 构建
 
+### 通用前置步骤
+
+确保已安装所有前置工具后，在 `unblind-desktop/` 目录下运行：
+
 ```bash
 wails build
 ```
 
 产物路径：`build/bin/unblind-desktop`（macOS 为 `.app`，Windows 为 `.exe`）。
+
+---
+
+### macOS
+
+**额外前置要求**
+
+```bash
+xcode-select --install   # 安装 Xcode Command Line Tools（提供编译器与链接器）
+```
+
+**构建**
+
+```bash
+wails build
+```
+
+**移除 Gatekeeper 隔离属性（必须）**
+
+macOS 会对从网络下载或本地编译后未经公证的应用打上隔离标记，直接双击会提示"无法打开"。构建完成后执行：
+
+```bash
+xattr -cr build/bin/unblind-desktop.app
+```
+
+之后即可正常运行。
+
+> **提示**：应用内置的 Chromium 内核下载功能在完成解压后会自动执行相同的 `xattr -cr` 操作，无需手动处理。
+
+---
+
+### Windows
+
+**额外前置要求**
+
+- **WebView2 Runtime**：Windows 11 已内置；Windows 10 需手动安装，可从 [Microsoft 官网](https://developer.microsoft.com/microsoft-edge/webview2/) 下载。
+- **NSIS**（可选，用于打包安装程序）：从 [nsis.sourceforge.io](https://nsis.sourceforge.io/Download) 安装后，构建时加上 `-nsis` 参数。
+
+**构建可执行文件**
+
+```bash
+wails build
+```
+
+**构建含安装向导的安装包（可选）**
+
+```bash
+wails build -nsis
+```
+
+产物分别为 `build/bin/unblind-desktop.exe` 和 `build/bin/unblind-desktop-amd64-installer.exe`。
 
 ## 首次使用流程
 

@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -122,6 +123,12 @@ func (d *Downloader) Download(ctx context.Context) error {
 
 	// Remove the zip file
 	os.Remove(zipPath)
+
+	// On macOS, strip the Gatekeeper quarantine attribute so the downloaded
+	// binary is allowed to run without a "cannot be opened" security warning.
+	if runtime.GOOS == "darwin" {
+		exec.Command("xattr", "-cr", kernelDir).Run()
+	}
 
 	// Make the binary executable on Unix systems
 	if runtime.GOOS != "windows" {

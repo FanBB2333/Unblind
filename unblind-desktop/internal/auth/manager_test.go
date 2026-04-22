@@ -1,10 +1,24 @@
 package auth
 
-import "testing"
+import (
+	"net/url"
+	"testing"
+)
 
 func TestLoginEntryURLTargetsProtectedPage(t *testing.T) {
-	if got := loginEntryURL(); got != TargetURL {
-		t.Fatalf("login entry URL should start from protected target page, got %q want %q", got, TargetURL)
+	got := loginEntryURL()
+
+	parsed, err := url.Parse(got)
+	if err != nil {
+		t.Fatalf("loginEntryURL() returned invalid URL %q: %v", got, err)
+	}
+
+	if base := parsed.Scheme + "://" + parsed.Host + parsed.Path; base != LoginURL {
+		t.Fatalf("loginEntryURL() base URL = %q, want %q", base, LoginURL)
+	}
+
+	if service := parsed.Query().Get("service"); service != TargetURL {
+		t.Fatalf("loginEntryURL() service = %q, want %q", service, TargetURL)
 	}
 }
 
