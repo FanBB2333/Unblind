@@ -22,10 +22,7 @@ jobs:
         include:
           - os: macos-14
             platform: macOS
-            arch: arm64
-          - os: macos-13
-            platform: macOS
-            arch: amd64
+            arch: universal
           - os: windows-latest
             platform: Windows
             arch: amd64
@@ -50,7 +47,12 @@ jobs:
           go install github.com/wailsapp/wails/v2/cmd/wails@v2.11.0
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
 
-      - name: Build application
+      - name: Build application (macOS universal)
+        if: runner.os == 'macOS'
+        run: wails build -clean -platform darwin/universal
+
+      - name: Build application (Windows)
+        if: runner.os == 'Windows'
         run: wails build -clean
 
       - name: Remove quarantine attribute (macOS)
