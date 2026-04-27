@@ -67,18 +67,27 @@ func (p *Parser) ExtractResults(ctx context.Context) (*ParsedResults, error) {
 		
 		const reviews = [];
 		const rows = table.querySelectorAll('tbody.ant-table-tbody tr');
-		
+
 		for (const row of rows) {
 			const cells = row.querySelectorAll('td');
-			if (cells.length >= 5) {
-				reviews.push({
-					expertName: cells[0].innerText.trim(),
-					reviewTime: cells[1].innerText.trim(),
-					overallEvaluation: cells[2].innerText.trim(),
-					reviewResult: cells[3].innerText.trim(),
-					remark: cells[4].innerText.trim()
-				});
+			// 列布局：
+			//   硕士: 5 列 — [专家, 评阅时间, 总体评价, 评阅结果, 备注]
+			//   博士: 列数较多，总体评价在 6、评阅结果在 7
+			let oIdx, rIdx, rmIdx;
+			if (cells.length >= 8) {
+				oIdx = 6; rIdx = 7; rmIdx = cells.length - 1;
+			} else if (cells.length >= 5) {
+				oIdx = 2; rIdx = 3; rmIdx = 4;
+			} else {
+				continue;
 			}
+			reviews.push({
+				expertName: cells[0].innerText.trim(),
+				reviewTime: cells[1].innerText.trim(),
+				overallEvaluation: cells[oIdx].innerText.trim(),
+				reviewResult: cells[rIdx].innerText.trim(),
+				remark: cells[rmIdx].innerText.trim()
+			});
 		}
 		
 		// Try to get final result from table footer
